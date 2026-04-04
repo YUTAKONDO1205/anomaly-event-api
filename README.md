@@ -32,3 +32,11 @@ sam local start-api
 sam build
 sam deploy --guided
 ```
+
+## Demo
+
+GET:
+https://8mz8ttpyk4.execute-api.ap-northeast-1.amazonaws.com/events
+
+POST:
+https://8mz8ttpyk4.execute-api.ap-northeast-1.amazonaws.com/events

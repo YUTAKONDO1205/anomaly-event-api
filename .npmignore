@@ -1,0 +1,12 @@
+.aws-sam/
+coverage/
+docs/
+events/
+node_modules/
+src/
+tests/
+.env
+.env.example
+README.md
+template.yaml
+tsconfig.json
