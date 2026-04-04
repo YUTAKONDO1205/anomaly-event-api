@@ -1,0 +1,6 @@
+{
+  "pathParameters": {
+    "id": "sample-event-id"
+  },
+  "body": "{\"status\":\"CHECKING\"}"
+}

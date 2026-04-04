@@ -1,0 +1,3 @@
+{
+  "body": "{\"deviceId\":\"drone-001\",\"sectionId\":\"A-12\",\"distance\":14.2,\"detectedAt\":\"2026-04-04T10:00:00Z\",\"confidence\":0.93,\"imageKey\":\"images/sample.jpg\",\"note\":\"crack-like anomaly\"}"
+}
