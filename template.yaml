@@ -73,6 +73,22 @@ Resources:
             Path: /events
             Method: GET
 
+  GetDashboardFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: dist/handlers/getDashboard.handler
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref EventsTable
+      Events:
+        GetDashboard:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /dashboard
+            Method: GET
+
   GetEventByIdFunction:
     Type: AWS::Serverless::Function
     Properties:

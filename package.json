@@ -10,6 +10,7 @@
     "dataset:run": "node scripts/run-batch-detection.mjs",
     "frontend": "node scripts/serve-frontend.mjs",
     "local": "npm run build && node scripts/local-dev-server.mjs",
+    "ml:train": "node scripts/train-python-model.mjs",
     "typecheck": "tsc --noEmit",
     "sam:build": "npm run build && sam build",
     "sam:local": "npm run build && sam local start-api",

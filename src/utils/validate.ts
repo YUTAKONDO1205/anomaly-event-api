@@ -1,10 +1,11 @@
-import { CreateEventInput } from "../models/event";
+import { CreateEventInput, EventSeverity } from "../models/event";
 import { EventStatus } from "../models/event";
 import { DetectImageInput } from "../types/detection";
 import { ListEventsQuery, UpdateStatusInput, UploadContentType, UploadUrlInput } from "../types/event";
 import { RequestValidationError } from "./errors";
 
 export const allowedEventStatuses: EventStatus[] = ["NEW", "CHECKING", "RESOLVED"];
+export const allowedEventSeverities: EventSeverity[] = ["LOW", "MEDIUM", "HIGH"];
 export const allowedUploadContentTypes: UploadContentType[] = ["image/jpeg", "image/png", "image/webp"];
 
 function isNonEmptyString(value: unknown): value is string {
@@ -53,6 +54,28 @@ export function validateCreateEventInput(input: Partial<CreateEventInput> | null
 
   if (!isFiniteNumber(input.confidence) || input.confidence < 0 || input.confidence > 1) {
     errors.push("confidence must be a number between 0 and 1");
+  }
+
+  if (input.severity !== undefined && !allowedEventSeverities.includes(input.severity)) {
+    errors.push("severity must be one of LOW, MEDIUM, HIGH");
+  }
+
+  if (input.detectionProvider !== undefined && !isNonEmptyString(input.detectionProvider)) {
+    errors.push("detectionProvider must be a non-empty string when provided");
+  }
+
+  if (input.topLabel !== undefined && !isNonEmptyString(input.topLabel)) {
+    errors.push("topLabel must be a non-empty string when provided");
+  }
+
+  if (input.evidenceSummary !== undefined && !isNonEmptyString(input.evidenceSummary)) {
+    errors.push("evidenceSummary must be a non-empty string when provided");
+  }
+
+  if (input.insightTags !== undefined) {
+    if (!Array.isArray(input.insightTags) || input.insightTags.some((tag) => !isNonEmptyString(tag))) {
+      errors.push("insightTags must be an array of non-empty strings when provided");
+    }
   }
 
   if (input.imageKey !== undefined && !isNonEmptyString(input.imageKey)) {

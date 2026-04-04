@@ -31,14 +31,24 @@ function getStorageMode(): "aws" | "local" {
   return process.env.APP_STORAGE_MODE === "local" ? "local" : "aws";
 }
 
-function getDetectionProvider(defaultProvider: "rekognition" | "heuristic"): "rekognition" | "heuristic" {
-  return process.env.DETECTION_PROVIDER === "heuristic" ? "heuristic" : defaultProvider;
+function getDetectionProvider(
+  defaultProvider: "rekognition" | "heuristic" | "python"
+): "rekognition" | "heuristic" | "python" {
+  const value = process.env.DETECTION_PROVIDER?.trim();
+  if (value === "python" || value === "heuristic" || value === "rekognition") {
+    return value;
+  }
+
+  return defaultProvider;
 }
 
 const storageMode = getStorageMode();
 const detectionProjectVersionArn = getOptionalEnv("REKOGNITION_PROJECT_VERSION_ARN");
-const detectionProvider = getDetectionProvider(detectionProjectVersionArn ? "rekognition" : "heuristic");
-const defaultMinConfidence = detectionProvider === "heuristic" ? 50 : 80;
+const detectionProvider = getDetectionProvider(
+  detectionProjectVersionArn ? "rekognition" : storageMode === "local" ? "python" : "heuristic"
+);
+const defaultMinConfidence =
+  detectionProvider === "rekognition" ? 80 : detectionProvider === "python" ? 55 : 50;
 
 export const env = {
   storageMode,
@@ -51,5 +61,18 @@ export const env = {
   detectionTargetLabel: process.env.DETECTION_TARGET_LABEL?.trim() || "Positive",
   detectionMinConfidence: getNumberEnv("DETECTION_MIN_CONFIDENCE", defaultMinConfidence),
   localUploadsDir: path.resolve(process.cwd(), process.env.LOCAL_UPLOADS_DIR || "local-storage/uploads"),
-  localEventsFile: path.resolve(process.cwd(), process.env.LOCAL_EVENTS_FILE || "local-storage/events/events.json")
+  localEventsFile: path.resolve(process.cwd(), process.env.LOCAL_EVENTS_FILE || "local-storage/events/events.json"),
+  pythonExecutable: process.env.PYTHON_EXECUTABLE?.trim() || "python",
+  pythonDetectionScript: path.resolve(
+    process.cwd(),
+    process.env.PYTHON_DETECTION_SCRIPT || "python/crack_ml.py"
+  ),
+  pythonModelPath: path.resolve(
+    process.cwd(),
+    process.env.PYTHON_MODEL_PATH || "local-storage/ml/crack-local-model.json"
+  ),
+  datasetManifestFile: path.resolve(
+    process.cwd(),
+    process.env.DATASET_MANIFEST_FILE || "datasets/manifests/index.json"
+  )
 };

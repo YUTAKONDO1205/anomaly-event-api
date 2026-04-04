@@ -10,24 +10,31 @@ const repoRoot = process.cwd();
 const frontendRoot = path.join(repoRoot, "frontend");
 
 process.env.APP_STORAGE_MODE = process.env.APP_STORAGE_MODE || "local";
-process.env.DETECTION_PROVIDER = process.env.DETECTION_PROVIDER || "heuristic";
+process.env.DETECTION_PROVIDER = process.env.DETECTION_PROVIDER || "python";
 process.env.EVENTS_TABLE = process.env.EVENTS_TABLE || "local-events";
 process.env.EVENT_IMAGES_BUCKET = process.env.EVENT_IMAGES_BUCKET || "local-uploads";
 process.env.LOCAL_UPLOADS_DIR = process.env.LOCAL_UPLOADS_DIR || "local-storage/uploads";
 process.env.LOCAL_EVENTS_FILE = process.env.LOCAL_EVENTS_FILE || "local-storage/events/events.json";
 process.env.DETECTION_TARGET_LABEL = process.env.DETECTION_TARGET_LABEL || "Positive";
-process.env.DETECTION_MIN_CONFIDENCE = process.env.DETECTION_MIN_CONFIDENCE || "50";
+process.env.DETECTION_MIN_CONFIDENCE = process.env.DETECTION_MIN_CONFIDENCE || "55";
+
+const uploadsRoot = path.join(repoRoot, process.env.LOCAL_UPLOADS_DIR);
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8"
+  ".json": "application/json; charset=utf-8",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp"
 };
 
 const handlerModules = {
   createEvent: () => import(pathToFileURL(path.join(repoRoot, "dist/handlers/createEvent.js")).href),
   getEvents: () => import(pathToFileURL(path.join(repoRoot, "dist/handlers/getEvents.js")).href),
+  getDashboard: () => import(pathToFileURL(path.join(repoRoot, "dist/handlers/getDashboard.js")).href),
   getEventById: () => import(pathToFileURL(path.join(repoRoot, "dist/handlers/getEventById.js")).href),
   updateEventStatus: () => import(pathToFileURL(path.join(repoRoot, "dist/handlers/updateEventStatus.js")).href),
   getUploadUrl: () => import(pathToFileURL(path.join(repoRoot, "dist/handlers/getUploadUrl.js")).href),
@@ -107,9 +114,8 @@ async function runHandler(loader, request, response, pathParameters = {}) {
   }
 }
 
-async function serveStatic(request, response) {
-  const filePath = resolveStaticFile(request.url);
-  const normalizedRoot = path.resolve(frontendRoot);
+async function serveFile(response, rootDirectory, filePath) {
+  const normalizedRoot = path.resolve(rootDirectory);
   const normalizedFile = path.resolve(filePath);
 
   if (!normalizedFile.startsWith(normalizedRoot)) {
@@ -128,6 +134,18 @@ async function serveStatic(request, response) {
     response.writeHead(404);
     response.end("Not found");
   }
+}
+
+async function serveStatic(request, response) {
+  const filePath = resolveStaticFile(request.url);
+  await serveFile(response, frontendRoot, filePath);
+}
+
+async function serveUpload(request, response) {
+  const pathname = new URL(request.url, `http://${host}:${port}`).pathname;
+  const relativeUploadPath = decodeURIComponent(pathname.replace(/^\/uploads\//, ""));
+  const filePath = path.join(uploadsRoot, relativeUploadPath);
+  await serveFile(response, uploadsRoot, filePath);
 }
 
 const server = http.createServer(async (request, response) => {
@@ -159,6 +177,11 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && pathname === "/dashboard") {
+    await runHandler(handlerModules.getDashboard, request, response);
+    return;
+  }
+
   if (request.method === "POST" && pathname === "/upload-url") {
     await runHandler(handlerModules.getUploadUrl, request, response);
     return;
@@ -185,11 +208,16 @@ const server = http.createServer(async (request, response) => {
     return;
   }
 
+  if (request.method === "GET" && pathname.startsWith("/uploads/")) {
+    await serveUpload(request, response);
+    return;
+  }
+
   await serveStatic(request, response);
 });
 
 server.listen(port, host, () => {
   console.log(`Local app available at http://${host}:${port}`);
   console.log("Storage mode: local");
-  console.log("Detection provider: heuristic");
+  console.log(`Detection provider: ${process.env.DETECTION_PROVIDER}`);
 });

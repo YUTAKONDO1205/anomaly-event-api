@@ -56,14 +56,18 @@ export async function updateLocalEvents(mutator: (items: EventItem[]) => Promise
   });
 }
 
+export function resolveLocalUploadPath(imageKey: string): string {
+  return path.join(env.localUploadsDir, imageKey);
+}
+
 export async function writeLocalUpload(imageKey: string, bytes: Uint8Array): Promise<string> {
-  const filePath = path.join(env.localUploadsDir, imageKey);
+  const filePath = resolveLocalUploadPath(imageKey);
   await ensureDirectory(filePath);
   await fs.writeFile(filePath, bytes);
   return filePath;
 }
 
 export async function readLocalUpload(imageKey: string): Promise<Uint8Array> {
-  const filePath = path.join(env.localUploadsDir, imageKey);
+  const filePath = resolveLocalUploadPath(imageKey);
   return fs.readFile(filePath);
 }
