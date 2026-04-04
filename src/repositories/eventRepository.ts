@@ -3,12 +3,18 @@ import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, ScanComman
 import { EventItem, EventStatus } from "../models/event";
 import { ListEventsQuery } from "../types/event";
 import { env } from "../utils/env";
+import { readLocalEvents, updateLocalEvents } from "../utils/localStore";
 
 const client = new DynamoDBClient({ region: env.region });
 const docClient = DynamoDBDocumentClient.from(client);
 
 export class EventRepository {
   async save(item: EventItem): Promise<void> {
+    if (env.storageMode === "local") {
+      await updateLocalEvents((items) => [...items, item]);
+      return;
+    }
+
     await docClient.send(
       new PutCommand({
         TableName: env.eventsTable,
@@ -18,6 +24,21 @@ export class EventRepository {
   }
 
   async findAll(filters: ListEventsQuery = {}): Promise<EventItem[]> {
+    if (env.storageMode === "local") {
+      const items = await readLocalEvents();
+      return items.filter((item) => {
+        if (filters.status && item.status !== filters.status) {
+          return false;
+        }
+
+        if (filters.deviceId && item.deviceId !== filters.deviceId) {
+          return false;
+        }
+
+        return true;
+      });
+    }
+
     const scanInput: ScanCommandInput = {
       TableName: env.eventsTable
     };
@@ -49,6 +70,11 @@ export class EventRepository {
   }
 
   async findById(eventId: string): Promise<EventItem | null> {
+    if (env.storageMode === "local") {
+      const items = await readLocalEvents();
+      return items.find((item) => item.eventId === eventId) ?? null;
+    }
+
     const result = await docClient.send(
       new GetCommand({
         TableName: env.eventsTable,
@@ -60,6 +86,26 @@ export class EventRepository {
   }
 
   async updateStatus(eventId: string, status: EventStatus): Promise<EventItem | null> {
+    if (env.storageMode === "local") {
+      let updatedItem: EventItem | null = null;
+      await updateLocalEvents((items) =>
+        items.map((item) => {
+          if (item.eventId !== eventId) {
+            return item;
+          }
+
+          updatedItem = {
+            ...item,
+            status,
+            updatedAt: new Date().toISOString()
+          };
+
+          return updatedItem;
+        })
+      );
+      return updatedItem;
+    }
+
     try {
       const result = await docClient.send(
         new UpdateCommand({

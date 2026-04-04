@@ -1,0 +1,12 @@
+{
+  "positiveDir": "C:\\Users\\PC_User\\crack-dataset\\Positive",
+  "negativeDir": "C:\\Users\\PC_User\\crack-dataset\\Negative",
+  "outputFile": "datasets/manifests/index.json",
+  "apiBaseUrl": "http://127.0.0.1:3000",
+  "defaultDeviceId": "drone-importer",
+  "defaultSectionId": "crack-scan",
+  "defaultDistance": 0,
+  "concurrency": 2,
+  "maxImagesPerClass": 100,
+  "shuffle": true
+}

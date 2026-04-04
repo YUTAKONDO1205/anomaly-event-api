@@ -8,6 +8,15 @@ import { UploadUrlInput } from "../types/event";
 
 const service = new UploadService();
 
+function buildBaseUrl(event: APIGatewayProxyEventV2): string {
+  const protocol =
+    event.headers?.["x-forwarded-proto"] ||
+    event.headers?.["X-Forwarded-Proto"] ||
+    "http";
+  const host = event.headers?.host || event.headers?.Host || "127.0.0.1:3000";
+  return `${protocol}://${host}`;
+}
+
 export const handler = async (
   event: APIGatewayProxyEventV2
 ): Promise<APIGatewayProxyStructuredResultV2> => {
@@ -18,7 +27,7 @@ export const handler = async (
       return badRequest(errors.join("; "));
     }
 
-    const result = await service.createUploadUrl(body!.contentType);
+    const result = await service.createUploadUrl(body!.contentType, buildBaseUrl(event));
     return ok(result, "Upload URL generated");
   } catch (error) {
     if (error instanceof RequestValidationError) {

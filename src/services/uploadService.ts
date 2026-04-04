@@ -16,8 +16,19 @@ export function buildImageObjectKey(contentType: UploadContentType): string {
 }
 
 export class UploadService {
-  async createUploadUrl(contentType: UploadContentType) {
+  async createUploadUrl(contentType: UploadContentType, baseUrl?: string) {
     const key = buildImageObjectKey(contentType);
+
+    if (env.storageMode === "local") {
+      return {
+        key,
+        bucket: env.eventImagesBucket,
+        contentType,
+        uploadUrl: baseUrl ? `${baseUrl}/uploads/${encodeURIComponent(key)}` : null,
+        expiresIn: 0,
+        uploadMode: "inline"
+      };
+    }
 
     const command = new PutObjectCommand({
       Bucket: env.eventImagesBucket,
@@ -32,7 +43,8 @@ export class UploadService {
       bucket: env.eventImagesBucket,
       contentType,
       uploadUrl,
-      expiresIn: 300
+      expiresIn: 300,
+      uploadMode: "presigned"
     };
   }
 }

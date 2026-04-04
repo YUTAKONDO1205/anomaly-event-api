@@ -1,5 +1,6 @@
 import { CreateEventInput } from "../models/event";
 import { EventStatus } from "../models/event";
+import { DetectImageInput } from "../types/detection";
 import { ListEventsQuery, UpdateStatusInput, UploadContentType, UploadUrlInput } from "../types/event";
 import { RequestValidationError } from "./errors";
 
@@ -106,6 +107,48 @@ export function validateUploadUrlInput(input: Partial<UploadUrlInput> | null): s
 
   if (!allowedUploadContentTypes.includes(input.contentType as UploadContentType)) {
     errors.push("contentType must be one of image/jpeg, image/png, image/webp");
+  }
+
+  return errors;
+}
+
+export function validateDetectImageInput(input: Partial<DetectImageInput> | null): string[] {
+  const errors: string[] = [];
+
+  if (!input) {
+    return ["Request body is required"];
+  }
+
+  if (!isNonEmptyString(input.deviceId)) {
+    errors.push("deviceId must be a non-empty string");
+  }
+
+  if (!isNonEmptyString(input.sectionId)) {
+    errors.push("sectionId must be a non-empty string");
+  }
+
+  if (!isFiniteNumber(input.distance) || input.distance < 0) {
+    errors.push("distance must be a number greater than or equal to 0");
+  }
+
+  if (!isValidIsoDateTime(input.detectedAt)) {
+    errors.push("detectedAt must be a valid ISO 8601 date-time string");
+  }
+
+  if (!isNonEmptyString(input.imageKey)) {
+    errors.push("imageKey must be a non-empty string");
+  }
+
+  if (input.imageContentType !== undefined && typeof input.imageContentType !== "string") {
+    errors.push("imageContentType must be a string when provided");
+  }
+
+  if (input.imageDataBase64 !== undefined && !isNonEmptyString(input.imageDataBase64)) {
+    errors.push("imageDataBase64 must be a non-empty base64 string when provided");
+  }
+
+  if (input.note !== undefined && typeof input.note !== "string") {
+    errors.push("note must be a string when provided");
   }
 
   return errors;

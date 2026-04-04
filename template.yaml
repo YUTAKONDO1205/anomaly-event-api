@@ -2,6 +2,17 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: Anomaly Event API
 
+Parameters:
+  RekognitionProjectVersionArn:
+    Type: String
+    Default: ""
+  DetectionTargetLabel:
+    Type: String
+    Default: Positive
+  DetectionMinConfidence:
+    Type: Number
+    Default: 80
+
 Globals:
   Function:
     Runtime: nodejs20.x
@@ -11,6 +22,9 @@ Globals:
       Variables:
         EVENTS_TABLE: !Ref EventsTable
         EVENT_IMAGES_BUCKET: !Ref EventImagesBucket
+        REKOGNITION_PROJECT_VERSION_ARN: !Ref RekognitionProjectVersionArn
+        DETECTION_TARGET_LABEL: !Ref DetectionTargetLabel
+        DETECTION_MIN_CONFIDENCE: !Ref DetectionMinConfidence
 
 Resources:
   Api:
@@ -105,6 +119,29 @@ Resources:
           Properties:
             ApiId: !Ref Api
             Path: /upload-url
+            Method: POST
+
+  DetectImageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: dist/handlers/detectImage.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref EventsTable
+        - S3ReadPolicy:
+            BucketName: !Ref EventImagesBucket
+        - Statement:
+            - Effect: Allow
+              Action:
+                - rekognition:DetectCustomLabels
+              Resource: "*"
+      Events:
+        DetectImage:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /detect
             Method: POST
 
   EventsTable:

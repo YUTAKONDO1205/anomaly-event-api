@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Anomaly Detection Console</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Crack Detection</p>
+          <h1>Anomaly Detection Console</h1>
+          <p class="lede">
+            Upload an image, run the detection API, and review the latest stored events.
+          </p>
+        </div>
+        <div class="hero-card">
+          <label for="apiBaseUrl">API base URL</label>
+          <input id="apiBaseUrl" type="url" value="http://127.0.0.1:3000" />
+          <p class="hint">Use the local SAM endpoint or your deployed API URL.</p>
+        </div>
+      </header>
+
+      <main class="grid">
+        <section class="panel panel-form">
+          <div class="panel-heading">
+            <p class="eyebrow">Input</p>
+            <h2>Run Detection</h2>
+          </div>
+          <form id="detectForm">
+            <label>
+              <span>Device ID</span>
+              <input id="deviceId" type="text" value="drone-001" required />
+            </label>
+            <label>
+              <span>Section ID</span>
+              <input id="sectionId" type="text" value="A-12" required />
+            </label>
+            <label>
+              <span>Distance</span>
+              <input id="distance" type="number" min="0" step="0.1" value="12.4" required />
+            </label>
+            <label>
+              <span>Note</span>
+              <input id="note" type="text" value="frontend upload" />
+            </label>
+            <label class="file-input">
+              <span>Image file</span>
+              <input id="imageFile" type="file" accept=".jpg,.jpeg,.png,.webp" required />
+            </label>
+            <button id="submitButton" type="submit">Upload and Detect</button>
+          </form>
+        </section>
+
+        <section class="panel panel-preview">
+          <div class="panel-heading">
+            <p class="eyebrow">Preview</p>
+            <h2>Selected Image</h2>
+          </div>
+          <div id="previewFrame" class="preview-frame empty">Choose an image to preview.</div>
+        </section>
+
+        <section class="panel panel-result">
+          <div class="panel-heading">
+            <p class="eyebrow">Response</p>
+            <h2>Detection Result</h2>
+          </div>
+          <div id="statusBanner" class="status-banner idle">Waiting for a request.</div>
+          <pre id="resultOutput" class="result-output">No detection yet.</pre>
+        </section>
+
+        <section class="panel panel-events">
+          <div class="panel-heading events-heading">
+            <div>
+              <p class="eyebrow">DynamoDB</p>
+              <h2>Recent Events</h2>
+            </div>
+            <button id="refreshEvents" type="button" class="secondary">Refresh</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Detected At</th>
+                  <th>Device</th>
+                  <th>Section</th>
+                  <th>Status</th>
+                  <th>Confidence</th>
+                </tr>
+              </thead>
+              <tbody id="eventsTable">
+                <tr>
+                  <td colspan="5">No events loaded.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

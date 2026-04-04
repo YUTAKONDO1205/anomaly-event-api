@@ -6,6 +6,10 @@
   "scripts": {
     "build": "npm run clean && tsc",
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "dataset:index": "node scripts/build-dataset-index.mjs",
+    "dataset:run": "node scripts/run-batch-detection.mjs",
+    "frontend": "node scripts/serve-frontend.mjs",
+    "local": "npm run build && node scripts/local-dev-server.mjs",
     "typecheck": "tsc --noEmit",
     "sam:build": "npm run build && sam build",
     "sam:local": "npm run build && sam local start-api",
@@ -14,14 +18,18 @@
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.879.0",
+    "@aws-sdk/client-rekognition": "^3.879.0",
     "@aws-sdk/client-s3": "^3.879.0",
     "@aws-sdk/lib-dynamodb": "^3.879.0",
     "@aws-sdk/s3-request-presigner": "^3.879.0",
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.147",
     "@types/node": "^22.10.2",
+    "@types/pngjs": "^6.0.5",
     "typescript": "^5.7.2"
   }
 }
