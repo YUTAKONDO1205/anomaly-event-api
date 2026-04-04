@@ -4,7 +4,7 @@ import { EventService } from "../services/eventService";
 import { RequestValidationError } from "../utils/errors";
 import { logger } from "../utils/logger";
 import { badRequest, notFound, ok, serverError } from "../utils/response";
-import { parseJson, validateUpdateStatusInput } from "../utils/validate";
+import { isValidUpdateStatusInput, parseJson, validateUpdateStatusInput } from "../utils/validate";
 
 const service = new EventService();
 
@@ -19,12 +19,12 @@ export const handler = async (
       return badRequest("Missing event id");
     }
 
-    const errors = validateUpdateStatusInput(body);
-    if (errors.length > 0) {
+    if (!isValidUpdateStatusInput(body)) {
+      const errors = validateUpdateStatusInput(body);
       return badRequest(errors.join("; "));
     }
 
-    const result = await service.updateStatus(eventId, body!.status);
+    const result = await service.updateStatus(eventId, body.status);
     if (!result) {
       return notFound("Event not found");
     }

@@ -93,6 +93,10 @@ export function validateUpdateStatusInput(input: Partial<UpdateStatusInput> | nu
   return errors;
 }
 
+export function isValidUpdateStatusInput(input: Partial<UpdateStatusInput> | null): input is UpdateStatusInput {
+  return validateUpdateStatusInput(input).length === 0;
+}
+
 export function validateUploadUrlInput(input: Partial<UploadUrlInput> | null): string[] {
   const errors: string[] = [];
 
