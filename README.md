@@ -251,6 +251,21 @@ npm run sam:deploy
 npm run sam:publish-web
 ```
 
+[初回セットアップ]
+npm install
+python -m pip install -r requirements.txt
+[データ準備（画像置いたあと）]
+npm run dataset:index
+npm run ml:train
+[AWS設定（1回だけ）]
+aws configure
+aws sts get-caller-identity
+[デプロイ]
+npm run sam:deploy
+[フロント公開]
+npm run sam:publish-web
+
+
 ### AWS 配備時の補足
 
 - `sam build` / `sam deploy` は Python 推論 Lambda をコンテナイメージでビルドするため Docker が必要です
