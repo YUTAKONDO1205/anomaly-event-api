@@ -5,11 +5,13 @@ const state = {
   dashboard: null,
   selectedEventId: null,
   activeStatus: "ALL",
-  previewObjectUrl: null
+  previewObjectUrl: null,
+  lastSyncedAt: null
 };
 
 const elements = {
   apiBaseUrl: document.querySelector("#apiBaseUrl"),
+  syncNote: document.querySelector("#syncNote"),
   detectForm: document.querySelector("#detectForm"),
   deviceId: document.querySelector("#deviceId"),
   sectionId: document.querySelector("#sectionId"),
@@ -20,6 +22,7 @@ const elements = {
   scrollToStudio: document.querySelector("#scrollToStudio"),
   refreshAll: document.querySelector("#refreshAll"),
   refreshEvents: document.querySelector("#refreshEvents"),
+  refreshDatabase: document.querySelector("#refreshDatabase"),
   previewStage: document.querySelector("#previewStage"),
   previewFrame: document.querySelector("#previewFrame"),
   attentionGrid: document.querySelector("#attentionGrid"),
@@ -62,10 +65,40 @@ const elements = {
   eventDetail: document.querySelector("#eventDetail")
 };
 
+function getConfiguredApiBaseUrl() {
+  const configuredValue = window.__APP_CONFIG__?.apiBaseUrl;
+  if (typeof configuredValue !== "string" || !configuredValue.trim()) {
+    return "";
+  }
+
+  return configuredValue.trim().replace(/\/$/, "");
+}
+
+function isLocalEndpoint(value) {
+  try {
+    const url = new URL(value);
+    return url.hostname === "127.0.0.1" || url.hostname === "localhost";
+  } catch {
+    return false;
+  }
+}
+
 function getApiBaseUrl() {
-  const value = elements.apiBaseUrl.value.trim().replace(/\/$/, "");
+  const fallback = window.location.origin;
+  const rawValue = elements.apiBaseUrl.value.trim() || fallback;
+  const value = rawValue.replace(/\/$/, "");
+  elements.apiBaseUrl.value = value;
   localStorage.setItem("apiBaseUrl", value);
   return value;
+}
+
+function buildApiUrl(path, bustCache = false) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const url = new URL(normalizedPath, `${getApiBaseUrl()}/`);
+  if (bustCache) {
+    url.searchParams.set("_ts", String(Date.now()));
+  }
+  return url;
 }
 
 function formatDate(value) {
@@ -74,6 +107,20 @@ function formatDate(value) {
   }
 
   return new Date(value).toLocaleString("ja-JP");
+}
+
+function formatSyncTime(value) {
+  if (!value) {
+    return "--";
+  }
+
+  return new Date(value).toLocaleString("ja-JP", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
 }
 
 function formatPercent(value, digits = 1) {
@@ -99,6 +146,34 @@ function setStatus(kind, message) {
 
 function setResult(payload) {
   elements.resultOutput.textContent = JSON.stringify(payload, null, 2);
+}
+
+function setSyncNote(message) {
+  elements.syncNote.textContent = message;
+}
+
+function markSynced() {
+  state.lastSyncedAt = Date.now();
+  setSyncNote(`Last sync ${formatSyncTime(state.lastSyncedAt)}`);
+}
+
+function resetPreview(message = "Choose an image to preview.") {
+  clearPreviewObjectUrl();
+  elements.previewFrame.textContent = message;
+  elements.previewStage.classList.add("empty");
+}
+
+async function withBusyButton(button, busyLabel, task) {
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = busyLabel;
+
+  try {
+    return await task();
+  } finally {
+    button.disabled = false;
+    button.textContent = originalLabel;
+  }
 }
 
 function clearPreviewObjectUrl() {
@@ -266,6 +341,7 @@ function renderDashboard(snapshot) {
   const model = snapshot.model;
   const byStatus = snapshot.events.byStatus;
   const bySeverity = snapshot.events.bySeverity;
+  const canResetLocalDatabase = snapshot.runtime.storageMode === "local";
 
   elements.runtimeProviderValue.textContent = snapshot.runtime.detectionProvider.toUpperCase();
   elements.runtimeThresholdValue.textContent = `Threshold ${snapshot.runtime.threshold}% / ${snapshot.runtime.targetLabel}`;
@@ -308,6 +384,10 @@ function renderDashboard(snapshot) {
     snapshot.events.total > 0 ? formatPercent(snapshot.events.averageConfidence * 100, 1) : "--";
   elements.sidebarStatusMix.textContent = `NEW ${byStatus.NEW} / CHECKING ${byStatus.CHECKING} / RESOLVED ${byStatus.RESOLVED}`;
   elements.sidebarSeverityMix.textContent = `LOW ${bySeverity.LOW} / MEDIUM ${bySeverity.MEDIUM} / HIGH ${bySeverity.HIGH}`;
+  elements.refreshDatabase.disabled = !canResetLocalDatabase;
+  elements.refreshDatabase.title = canResetLocalDatabase
+    ? "Delete locally stored events and uploaded images"
+    : "Local mode only";
 
   renderHighlights(snapshot.highlights ?? []);
 }
@@ -338,11 +418,11 @@ function renderEvents() {
         <tr data-event-id="${item.eventId}" class="${
           state.selectedEventId === item.eventId ? "is-selected" : ""
         }">
-          <td>${formatDate(item.detectedAt)}</td>
-          <td>${item.deviceId}</td>
-          <td>${item.severity ?? "--"}</td>
-          <td>${item.status}</td>
-          <td>${formatPercent(Number(item.confidence) * 100, 1)}</td>
+          <td data-label="Detected At">${formatDate(item.detectedAt)}</td>
+          <td data-label="Device">${item.deviceId}</td>
+          <td data-label="Severity">${item.severity ?? "--"}</td>
+          <td data-label="Status">${item.status}</td>
+          <td data-label="Confidence">${formatPercent(Number(item.confidence) * 100, 1)}</td>
         </tr>
       `
     )
@@ -350,8 +430,11 @@ function renderEvents() {
 }
 
 function imageUrlFromKey(imageKey) {
-  const apiBaseUrl = getApiBaseUrl();
-  return `${apiBaseUrl}/uploads/${encodeURIComponent(imageKey)}`;
+  const url = buildApiUrl(`/uploads/${encodeURIComponent(imageKey)}`);
+  if (state.lastSyncedAt) {
+    url.searchParams.set("v", String(state.lastSyncedAt));
+  }
+  return url.toString();
 }
 
 function renderEventDetail(item) {
@@ -462,7 +545,10 @@ async function runDetection(apiBaseUrl, payload) {
 }
 
 async function fetchDashboard() {
-  const response = await fetch(`${getApiBaseUrl()}/dashboard`);
+  const response = await fetch(buildApiUrl("/dashboard", true), {
+    cache: "no-store",
+    headers: { Accept: "application/json" }
+  });
   if (!response.ok) {
     throw new Error(`Dashboard fetch failed with ${response.status}`);
   }
@@ -472,7 +558,10 @@ async function fetchDashboard() {
 }
 
 async function fetchEvents() {
-  const response = await fetch(`${getApiBaseUrl()}/events`);
+  const response = await fetch(buildApiUrl("/events", true), {
+    cache: "no-store",
+    headers: { Accept: "application/json" }
+  });
   if (!response.ok) {
     throw new Error(`Events fetch failed with ${response.status}`);
   }
@@ -488,7 +577,10 @@ async function fetchEvents() {
 }
 
 async function loadEventDetail(eventId) {
-  const response = await fetch(`${getApiBaseUrl()}/events/${encodeURIComponent(eventId)}`);
+  const response = await fetch(buildApiUrl(`/events/${encodeURIComponent(eventId)}`, true), {
+    cache: "no-store",
+    headers: { Accept: "application/json" }
+  });
   if (!response.ok) {
     throw new Error(`Event detail fetch failed with ${response.status}`);
   }
@@ -512,7 +604,22 @@ async function updateEventStatus(eventId, status) {
   }
 
   await Promise.all([fetchEvents(), fetchDashboard()]);
+  markSynced();
   await loadEventDetail(eventId);
+}
+
+async function resetLocalDatabase() {
+  const response = await fetch(`${getApiBaseUrl()}/admin/reset-local-database`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" }
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Database reset failed with ${response.status}: ${text}`);
+  }
+
+  return response.json();
 }
 
 async function handleSubmit(event) {
@@ -567,7 +674,7 @@ async function handleSubmit(event) {
       );
     }
 
-    await Promise.all([fetchDashboard(), fetchEvents()]);
+    await refreshDashboardAndEvents();
 
     if (result.data?.event?.eventId) {
       await loadEventDetail(result.data.event.eventId);
@@ -590,8 +697,7 @@ function bindPreview() {
   elements.imageFile.addEventListener("change", () => {
     const file = elements.imageFile.files?.[0];
     if (!file) {
-      clearPreviewObjectUrl();
-      elements.previewFrame.textContent = "Choose an image to preview.";
+      resetPreview();
       clearAttentionGrid();
       clearHeatmapFrames();
       return;
@@ -652,34 +758,117 @@ function bindEventDetailActions() {
 }
 
 function loadSavedApiBaseUrl() {
-  const saved = localStorage.getItem("apiBaseUrl");
+  const saved = localStorage.getItem("apiBaseUrl")?.trim();
+  const configured = getConfiguredApiBaseUrl();
+
+  if (saved && configured && isLocalEndpoint(saved) && !isLocalEndpoint(configured)) {
+    elements.apiBaseUrl.value = configured;
+    localStorage.setItem("apiBaseUrl", configured);
+    return;
+  }
+
   if (saved) {
     elements.apiBaseUrl.value = saved;
+    return;
   }
+
+  if (configured) {
+    elements.apiBaseUrl.value = configured;
+    localStorage.setItem("apiBaseUrl", configured);
+    return;
+  }
+
+  elements.apiBaseUrl.value = window.location.origin;
 }
 
-async function refreshAll() {
+async function refreshDashboardAndEvents() {
   await Promise.all([fetchDashboard(), fetchEvents()]);
+  markSynced();
 }
 
 function bindGlobalActions() {
   elements.detectForm.addEventListener("submit", handleSubmit);
   elements.refreshEvents.addEventListener("click", async () => {
     try {
-      await fetchEvents();
+      setSyncNote("Refreshing event list...");
+      await withBusyButton(elements.refreshEvents, "Reloading...", async () => {
+        await fetchEvents();
+      });
+      markSynced();
       setStatus("idle", "Events refreshed.");
     } catch (error) {
+      setSyncNote("Event refresh failed");
       setStatus("warning", error instanceof Error ? error.message : "Could not refresh events.");
+    }
+  });
+
+  elements.refreshDatabase.addEventListener("click", async () => {
+    if (elements.refreshDatabase.disabled) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "local-storage の events と uploads を削除します。続行しますか？"
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setSyncNote("Clearing local database...");
+      await withBusyButton(elements.refreshDatabase, "Clearing...", async () => {
+        const result = await resetLocalDatabase();
+        state.events = [];
+        state.selectedEventId = null;
+        renderEvents();
+        renderEventDetail(null);
+        await refreshDashboardAndEvents();
+        setStatus(
+          "idle",
+          `Local storage cleared. Events ${result.data?.eventsCleared ?? 0}, uploads ${
+            result.data?.uploadsCleared ?? 0
+          }.`
+        );
+      });
+    } catch (error) {
+      setSyncNote("Database reset failed");
+      setStatus("warning", error instanceof Error ? error.message : "Could not clear local storage.");
     }
   });
 
   elements.refreshAll.addEventListener("click", async () => {
     try {
-      await refreshAll();
+      setSyncNote("Refreshing dashboard and events...");
+      await withBusyButton(elements.refreshAll, "Refreshing...", async () => {
+        await refreshDashboardAndEvents();
+      });
       setStatus("idle", "Dashboard and events refreshed.");
     } catch (error) {
+      setSyncNote("Refresh failed");
       setStatus("warning", error instanceof Error ? error.message : "Could not refresh dashboard.");
     }
+  });
+
+  elements.apiBaseUrl.addEventListener("change", async () => {
+    try {
+      setSyncNote("Endpoint changed. Refreshing...");
+      await withBusyButton(elements.refreshAll, "Refreshing...", async () => {
+        await refreshDashboardAndEvents();
+      });
+      setStatus("idle", "API endpoint updated.");
+    } catch (error) {
+      setSyncNote("Endpoint refresh failed");
+      setStatus("warning", error instanceof Error ? error.message : "Could not refresh dashboard.");
+    }
+  });
+
+  elements.apiBaseUrl.addEventListener("keydown", async (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+
+    event.preventDefault();
+    elements.apiBaseUrl.blur();
   });
 
   elements.scrollToStudio.addEventListener("click", () => {
@@ -694,12 +883,15 @@ async function init() {
   bindEventTable();
   bindEventDetailActions();
   bindGlobalActions();
+  resetPreview();
   clearHeatmapFrames();
+  setSyncNote("Syncing data...");
 
   try {
-    await refreshAll();
+    await refreshDashboardAndEvents();
     setStatus("idle", "Dashboard ready.");
   } catch (error) {
+    setSyncNote("Initial sync failed");
     setStatus("warning", error instanceof Error ? error.message : "Could not load dashboard.");
   }
 }

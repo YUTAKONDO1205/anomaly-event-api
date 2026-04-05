@@ -1,6 +1,11 @@
 node_modules/
 dist/
 .aws-sam/
+.aws-frontend-build/
+aws/deep-learning-artifacts/**
+!aws/deep-learning-artifacts/
+!aws/deep-learning-artifacts/model/
+!aws/deep-learning-artifacts/model/.gitkeep
 .env
 coverage/
 dataset.config.json

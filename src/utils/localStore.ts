@@ -32,6 +32,31 @@ async function loadLocalEventsUnlocked(): Promise<EventItem[]> {
   }
 }
 
+async function countFilesInDirectory(directoryPath: string): Promise<number> {
+  try {
+    const entries = await fs.readdir(directoryPath, { withFileTypes: true });
+    let total = 0;
+
+    for (const entry of entries) {
+      const fullPath = path.join(directoryPath, entry.name);
+      if (entry.isDirectory()) {
+        total += await countFilesInDirectory(fullPath);
+        continue;
+      }
+
+      total += 1;
+    }
+
+    return total;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return 0;
+    }
+
+    throw error;
+  }
+}
+
 async function writeLocalEventsUnlocked(items: EventItem[]): Promise<void> {
   await ensureDirectory(env.localEventsFile);
   const tempFile = `${env.localEventsFile}.tmp`;
@@ -53,6 +78,22 @@ export async function updateLocalEvents(mutator: (items: EventItem[]) => Promise
     const nextItems = await mutator(items);
     await writeLocalEventsUnlocked(nextItems);
     return nextItems;
+  });
+}
+
+export async function resetLocalEventStorage(): Promise<{ eventsCleared: number; uploadsCleared: number }> {
+  return withEventsFileLock(async () => {
+    const events = await loadLocalEventsUnlocked();
+    const uploadsCleared = await countFilesInDirectory(env.localUploadsDir);
+
+    await writeLocalEventsUnlocked([]);
+    await fs.rm(env.localUploadsDir, { recursive: true, force: true });
+    await fs.mkdir(env.localUploadsDir, { recursive: true });
+
+    return {
+      eventsCleared: events.length,
+      uploadsCleared
+    };
   });
 }
 

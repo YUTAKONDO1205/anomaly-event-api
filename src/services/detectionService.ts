@@ -11,6 +11,7 @@ import {
 } from "../types/detection";
 import { env } from "../utils/env";
 import { readLocalUpload, resolveLocalUploadPath, writeLocalUpload } from "../utils/localStore";
+import { AwsDeepLearningService } from "./awsDeepLearningService";
 import { EventService } from "./eventService";
 import { HeuristicDetectionService } from "./heuristicDetectionService";
 import { PythonDetectionResponse, PythonDetectionService } from "./pythonDetectionService";
@@ -103,7 +104,8 @@ function createSimpleExplanation(
 export class DetectionService {
   constructor(
     private readonly eventService = new EventService(),
-    private readonly pythonDetection = new PythonDetectionService()
+    private readonly pythonDetection = new PythonDetectionService(),
+    private readonly awsDeepLearning = new AwsDeepLearningService()
   ) {}
 
   async detectAndCreateEvent(input: DetectImageInput): Promise<DetectImageResult> {
@@ -147,6 +149,14 @@ export class DetectionService {
   private async detectLabels(input: DetectImageInput, imageBytes: Uint8Array): Promise<DetectionOutcome> {
     if (env.detectionProvider === "rekognition") {
       return this.detectWithRekognition(imageBytes);
+    }
+
+    if (env.detectionProvider === "aws-deep-learning" && env.storageMode === "aws") {
+      const awsResult = await this.awsDeepLearning.detect(imageBytes, {
+        imageKey: input.imageKey,
+        imageContentType: input.imageContentType
+      });
+      return this.fromPythonResult(awsResult);
     }
 
     if (env.detectionProvider === "python" && env.storageMode === "local") {
@@ -194,7 +204,7 @@ export class DetectionService {
     };
   }
 
-  private fromPythonResult(result: PythonDetectionResponse): DetectionOutcome {
+  private fromPythonResult(result: PythonDetectionResponse | Awaited<ReturnType<AwsDeepLearningService["detect"]>>): DetectionOutcome {
     return {
       anomalyDetected: result.anomalyDetected,
       anomalyConfidence: result.anomalyConfidence,

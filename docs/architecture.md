@@ -1,23 +1,21 @@
 # Architecture
 
-このドキュメントは `anomaly-event-api` の構成と責務分割を説明します。
+このドキュメントは `anomaly-event-api` の構成、責務分割、runtime mode ごとの差分を説明します。
 
 ## Goals
 
 このプロジェクトの狙いは次の 3 つです。
 
 - ひび割れ画像を入力して異常検出を実行できること
-- 異常だった結果をイベントとして保存・追跡できること
-- AWS 本番構成の前に local モードで素早く検証できること
+- 異常だった結果を event として保存・追跡できること
+- local と aws の両方で同じ体験を保ちながら構成を切り替えられること
 
 ## Runtime Modes
 
-このリポジトリは 2 つの実行モードを持ちます。
-
 | Mode | Storage | Detection | Primary Use |
 | --- | --- | --- | --- |
-| `local` | ローカルファイル | manifest ベースの簡易分類 | UI 開発、疎通確認、サンプル検証 |
-| `aws` | DynamoDB + S3 | Rekognition Custom Labels | サーバレス本番構成 |
+| `local` | ローカルファイル | Python MobileNetV2 + Grad-CAM | UI 開発、学習、疎通確認 |
+| `aws` | DynamoDB + S3 | Python Inference Lambda / Rekognition / Heuristic | AWS 公開、本番寄り検証 |
 
 ## High-Level View
 
@@ -28,6 +26,8 @@ Browser
   -> Local Dev Server
      -> Handlers
         -> Services
+           -> PythonDetectionService
+              -> python/crack_ml.py
            -> Local Storage
               -> local-storage/uploads
               -> local-storage/events/events.json
@@ -36,17 +36,19 @@ Browser
 ### AWS Mode
 
 ```text
-Client / Device
+Browser / Client
   -> API Gateway (HttpApi)
-     -> Lambda Handlers
+     -> Node.js Lambda Handlers
         -> Services
-           -> DynamoDB
            -> S3
-           -> Rekognition Custom Labels
+           -> DynamoDB
+           -> AwsDeepLearningService
+              -> DeepLearningInferenceFunction
+           -> Rekognition
            -> CloudWatch Logs
 ```
 
-## Layered Design
+## Main Layers
 
 コードは大きく 4 層に分かれています。
 
@@ -57,11 +59,11 @@ Client / Device
 責務:
 
 - HTTP リクエストを受ける
-- バリデーションを呼ぶ
+- validation を呼ぶ
 - service を呼ぶ
-- HTTP レスポンスへ整形する
+- HTTP response を整形する
 
-代表:
+主要 handler:
 
 - `createEvent.ts`
 - `getEvents.ts`
@@ -69,6 +71,8 @@ Client / Device
 - `updateEventStatus.ts`
 - `getUploadUrl.ts`
 - `detectImage.ts`
+- `getDashboard.ts`
+- `getUploadedImage.ts`
 
 ### 2. Service Layer
 
@@ -77,17 +81,20 @@ Client / Device
 責務:
 
 - 業務ロジックの実行
-- イベント作成
-- アップロード URL 発行
-- 異常検出
-- local / aws の実行モード差分の吸収
+- upload URL 発行
+- deep-learning / rekognition / heuristic の切り替え
+- event 作成
+- local / aws 差分の吸収
 
-主要サービス:
+主要 service:
 
-- `EventService`
-- `UploadService`
 - `DetectionService`
+- `PythonDetectionService`
+- `AwsDeepLearningService`
 - `HeuristicDetectionService`
+- `UploadService`
+- `DashboardService`
+- `EventService`
 
 ### 3. Repository Layer
 
@@ -95,9 +102,9 @@ Client / Device
 
 責務:
 
-- イベントの永続化
-- local モードでは JSON ファイル
-- aws モードでは DynamoDB
+- event の永続化
+- local では JSON ファイル
+- aws では DynamoDB
 
 ### 4. Utility Layer
 
@@ -106,13 +113,12 @@ Client / Device
 責務:
 
 - 環境変数管理
-- リクエストバリデーション
-- エラーハンドリング
-- ログ出力
-- レスポンス整形
-- ローカルストレージ操作
+- validation
+- response 整形
+- logger
+- local storage 操作
 
-## Request Flow
+## Main Request Flows
 
 ### Event CRUD
 
@@ -133,7 +139,8 @@ HTTP Request (/detect)
   -> detectImage handler
   -> validateDetectImageInput
   -> DetectionService
-     -> load image
+     -> load image bytes
+     -> select provider
      -> detect labels
      -> if anomaly: create event
   -> HTTP Response
@@ -143,37 +150,29 @@ HTTP Request (/detect)
 
 ### Local Mode
 
-local モードでは、`datasets/manifests/index.json` に載っている `Positive / Negative` サンプルを読み、
-各クラスの特徴量中心を使って簡易判定します。
+local モードでは、`python/crack_ml.py` を通して `MobileNetV2 Transfer Learning` を実行します。
 
-特徴量の例:
+特徴:
 
-- 明るさ
-- コントラスト
-- エッジ量
-- 暗いエッジ比率
-- 暗い画素比率
+- 初回推論時に model が無ければ自動学習
+- Grad-CAM による heatmap を生成
+- focus regions / attention grid / contributions を返す
 
-用途:
+向いている用途:
 
-- 画面確認
-- API のつながり確認
-- バッチ投入の確認
-
-制約:
-
-- 本番精度を保証しない
-- Rekognition や独自モデルの代替ではなく開発補助向け
+- UI 確認
+- API 疎通
+- 学習 / 推論の検証
 
 ### AWS Mode
 
-aws モードでは、S3 に保存された画像を `DetectionService` が読み込み、
-Rekognition Custom Labels へ送って `Positive` ラベルの信頼度を評価します。
+aws モードでは、S3 に保存された画像を `DetectionService` が読み込み、`DetectionProvider` に応じて provider を切り替えます。
 
-判定条件:
+- `aws-deep-learning`: Python コンテナ Lambda で MobileNetV2 + Grad-CAM を実行
+- `rekognition`: Rekognition Custom Labels を利用
+- `heuristic`: 画像特徴量ベースのフォールバック
 
-- `targetLabel` と一致するラベル名
-- `DETECTION_MIN_CONFIDENCE` 以上の confidence
+深層学習 path では、ローカルで学習した model 重みを `aws/deep-learning-artifacts/model` にコピーして Lambda image に同梱します。
 
 ## Storage Design
 
@@ -182,25 +181,29 @@ Rekognition Custom Labels へ送って `Positive` ラベルの信頼度を評価
 | Path | Purpose |
 | --- | --- |
 | `local-storage/uploads` | 受信画像の保存先 |
-| `local-storage/events/events.json` | 保存済みイベント |
+| `local-storage/events/events.json` | event 保存先 |
+| `local-storage/ml` | 学習済みモデルと metadata |
 
 ### AWS Storage
 
 | Resource | Purpose |
 | --- | --- |
-| DynamoDB `EventsTable` | イベント保存 |
-| S3 `EventImagesBucket` | 画像保存 |
+| DynamoDB `EventsTable` | event 保存 |
+| S3 `EventImagesBucket` | アップロード画像 |
+| S3 `FrontendBucket` | frontend 公開 |
 
 ## Deployment View
 
-`template.yaml` によって次を定義しています。
+`template.yaml` で次を定義しています。
 
 - HttpApi
-- Lambda Functions
+- Node.js Lambda Functions
+- Python Deep Learning Image Function
 - DynamoDB Table
-- S3 Bucket
+- S3 Upload Bucket
+- S3 Frontend Website Bucket
 
-追加されている主要な関数:
+主要 function:
 
 - `CreateEventFunction`
 - `GetEventsFunction`
@@ -208,6 +211,23 @@ Rekognition Custom Labels へ送って `Positive` ラベルの信頼度を評価
 - `UpdateEventStatusFunction`
 - `GetUploadUrlFunction`
 - `DetectImageFunction`
+- `GetDashboardFunction`
+- `GetUploadedImageFunction`
+- `DeepLearningInferenceFunction`
+
+## Frontend Integration
+
+frontend は静的 HTML / CSS / JavaScript です。
+
+役割:
+
+- upload-url の取得
+- local / aws で upload 手順を切り替え
+- detect 実行
+- heatmap / attention / event detail の表示
+- refresh / sync / local reset の操作
+
+AWS 公開時は `app-config.js` で API Base URL を注入します。
 
 ## Operational Notes
 
@@ -219,12 +239,12 @@ Rekognition Custom Labels へ送って `Positive` ラベルの信頼度を評価
 
 ### Validation
 
-入力検証は `src/utils/validate.ts` に集約されています。
+validation は `src/utils/validate.ts` に集約されています。
 
-代表的な検証:
+主な対象:
 
 - event 作成入力
-- detection 入力
+- detect 入力
 - upload content type
 - status 更新値
 
@@ -237,22 +257,18 @@ Rekognition Custom Labels へ送って `Positive` ラベルの信頼度を評価
 
 ### この設計の強み
 
-- local と aws の両方を同じ API 体験で扱える
+- local と aws の両方をほぼ同じ API 体験で扱える
+- deep-learning path と fallback path を同居できる
 - handler / service / repository の責務が分かれていて拡張しやすい
-- UI から検出までのフローが短く、デモしやすい
+- UI から検出、保存、運用までの距離が短い
 
 ### 今後伸ばしやすい点
 
-- repository を差し替えて RDB や別ストレージに移行
-- detection service を独自モデル API へ差し替え
-- frontend を React / Next.js へ差し替え
-
-## Recommended Next Steps
-
-- 異常領域の可視化を追加する
-- 検出結果にしきい値や履歴の比較を出す
-- 認証と権限制御を追加する
-- イベント一覧にページングを追加する
+- 認証 / 権限制御
+- CloudFront による HTTPS frontend 配信
+- model versioning / model registry
+- 非同期推論キュー
+- event pagination / search
 
 ## Related Documents
 

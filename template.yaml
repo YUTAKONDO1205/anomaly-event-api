@@ -3,6 +3,13 @@ Transform: AWS::Serverless-2016-10-31
 Description: Anomaly Event API
 
 Parameters:
+  DetectionProvider:
+    Type: String
+    Default: aws-deep-learning
+    AllowedValues:
+      - aws-deep-learning
+      - rekognition
+      - heuristic
   RekognitionProjectVersionArn:
     Type: String
     Default: ""
@@ -15,13 +22,16 @@ Parameters:
 
 Globals:
   Function:
-    Runtime: nodejs20.x
     Timeout: 10
     MemorySize: 256
     Environment:
       Variables:
+        APP_STORAGE_MODE: aws
+        DETECTION_PROVIDER: !Ref DetectionProvider
         EVENTS_TABLE: !Ref EventsTable
         EVENT_IMAGES_BUCKET: !Ref EventImagesBucket
+        AWS_DEEP_LEARNING_FUNCTION_NAME: !Ref DeepLearningInferenceFunction
+        PYTHON_MODEL_PATH: aws/deep-learning-artifacts/model/crack-local-model.json
         REKOGNITION_PROJECT_VERSION_ARN: !Ref RekognitionProjectVersionArn
         DETECTION_TARGET_LABEL: !Ref DetectionTargetLabel
         DETECTION_MIN_CONFIDENCE: !Ref DetectionMinConfidence
@@ -44,6 +54,7 @@ Resources:
   CreateEventFunction:
     Type: AWS::Serverless::Function
     Properties:
+      Runtime: nodejs20.x
       CodeUri: .
       Handler: dist/handlers/createEvent.handler
       Policies:
@@ -60,6 +71,7 @@ Resources:
   GetEventsFunction:
     Type: AWS::Serverless::Function
     Properties:
+      Runtime: nodejs20.x
       CodeUri: .
       Handler: dist/handlers/getEvents.handler
       Policies:
@@ -76,6 +88,7 @@ Resources:
   GetDashboardFunction:
     Type: AWS::Serverless::Function
     Properties:
+      Runtime: nodejs20.x
       CodeUri: .
       Handler: dist/handlers/getDashboard.handler
       Policies:
@@ -92,6 +105,7 @@ Resources:
   GetEventByIdFunction:
     Type: AWS::Serverless::Function
     Properties:
+      Runtime: nodejs20.x
       CodeUri: .
       Handler: dist/handlers/getEventById.handler
       Policies:
@@ -108,6 +122,7 @@ Resources:
   UpdateEventStatusFunction:
     Type: AWS::Serverless::Function
     Properties:
+      Runtime: nodejs20.x
       CodeUri: .
       Handler: dist/handlers/updateEventStatus.handler
       Policies:
@@ -124,6 +139,7 @@ Resources:
   GetUploadUrlFunction:
     Type: AWS::Serverless::Function
     Properties:
+      Runtime: nodejs20.x
       CodeUri: .
       Handler: dist/handlers/getUploadUrl.handler
       Policies:
@@ -140,8 +156,11 @@ Resources:
   DetectImageFunction:
     Type: AWS::Serverless::Function
     Properties:
+      Runtime: nodejs20.x
       CodeUri: .
       Handler: dist/handlers/detectImage.handler
+      Timeout: 30
+      MemorySize: 512
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref EventsTable
@@ -152,6 +171,10 @@ Resources:
               Action:
                 - rekognition:DetectCustomLabels
               Resource: "*"
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: !GetAtt DeepLearningInferenceFunction.Arn
       Events:
         DetectImage:
           Type: HttpApi
@@ -159,6 +182,40 @@ Resources:
             ApiId: !Ref Api
             Path: /detect
             Method: POST
+
+  DeepLearningInferenceFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      DockerTag: latest
+      DockerContext: .
+      Dockerfile: aws/deep-learning-lambda/Dockerfile
+    Properties:
+      PackageType: Image
+      Timeout: 60
+      MemorySize: 4096
+      Architectures:
+        - x86_64
+      Environment:
+        Variables:
+          MODEL_ARTIFACT_PATH: /var/task/model/crack-local-model.json
+          MODEL_WEIGHTS_PATH: /var/task/model/crack-local-model.pt
+
+  GetUploadedImageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: nodejs20.x
+      CodeUri: .
+      Handler: dist/handlers/getUploadedImage.handler
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref EventImagesBucket
+      Events:
+        GetUploadedImage:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref Api
+            Path: /uploads/{imageKey+}
+            Method: GET
 
   EventsTable:
     Type: AWS::DynamoDB::Table
@@ -186,7 +243,45 @@ Resources:
               - "*"
             MaxAge: 300
 
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub anomaly-event-frontend-${AWS::AccountId}-${AWS::Region}
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadForFrontendSite
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub ${FrontendBucket.Arn}/*
+
 Outputs:
   ApiUrl:
     Description: HTTP API endpoint
     Value: !Sub https://${Api}.execute-api.${AWS::Region}.amazonaws.com
+  DeepLearningFunctionName:
+    Description: Lambda name for AWS deep-learning inference
+    Value: !Ref DeepLearningInferenceFunction
+  FrontendBucketName:
+    Description: S3 bucket for the static web frontend
+    Value: !Ref FrontendBucket
+  FrontendWebsiteUrl:
+    Description: Public website URL for the static frontend
+    Value: !GetAtt FrontendBucket.WebsiteURL

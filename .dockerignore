@@ -1,0 +1,9 @@
+**
+!aws/
+!aws/deep-learning-lambda/
+!aws/deep-learning-lambda/**
+!aws/deep-learning-artifacts/
+!aws/deep-learning-artifacts/model/
+!aws/deep-learning-artifacts/model/**
+!python/
+!python/crack_ml.py

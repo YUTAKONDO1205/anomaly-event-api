@@ -32,10 +32,15 @@ function getStorageMode(): "aws" | "local" {
 }
 
 function getDetectionProvider(
-  defaultProvider: "rekognition" | "heuristic" | "python"
-): "rekognition" | "heuristic" | "python" {
+  defaultProvider: "rekognition" | "heuristic" | "python" | "aws-deep-learning"
+): "rekognition" | "heuristic" | "python" | "aws-deep-learning" {
   const value = process.env.DETECTION_PROVIDER?.trim();
-  if (value === "python" || value === "heuristic" || value === "rekognition") {
+  if (
+    value === "python" ||
+    value === "heuristic" ||
+    value === "rekognition" ||
+    value === "aws-deep-learning"
+  ) {
     return value;
   }
 
@@ -44,8 +49,15 @@ function getDetectionProvider(
 
 const storageMode = getStorageMode();
 const detectionProjectVersionArn = getOptionalEnv("REKOGNITION_PROJECT_VERSION_ARN");
+const awsDeepLearningFunctionName = getOptionalEnv("AWS_DEEP_LEARNING_FUNCTION_NAME");
 const detectionProvider = getDetectionProvider(
-  detectionProjectVersionArn ? "rekognition" : storageMode === "local" ? "python" : "heuristic"
+  detectionProjectVersionArn
+    ? "rekognition"
+    : storageMode === "local"
+      ? "python"
+      : awsDeepLearningFunctionName
+        ? "aws-deep-learning"
+        : "heuristic"
 );
 const defaultMinConfidence =
   detectionProvider === "rekognition" ? 80 : detectionProvider === "python" ? 55 : 50;
@@ -53,6 +65,7 @@ const defaultMinConfidence =
 export const env = {
   storageMode,
   detectionProvider,
+  awsDeepLearningFunctionName,
   eventsTable: storageMode === "aws" ? getEnv("EVENTS_TABLE") : process.env.EVENTS_TABLE || "local-events",
   eventImagesBucket:
     storageMode === "aws" ? getEnv("EVENT_IMAGES_BUCKET") : process.env.EVENT_IMAGES_BUCKET || "local-uploads",

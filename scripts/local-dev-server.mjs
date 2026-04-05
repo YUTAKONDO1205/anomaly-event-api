@@ -37,6 +37,7 @@ const handlerModules = {
   getDashboard: () => import(pathToFileURL(path.join(repoRoot, "dist/handlers/getDashboard.js")).href),
   getEventById: () => import(pathToFileURL(path.join(repoRoot, "dist/handlers/getEventById.js")).href),
   updateEventStatus: () => import(pathToFileURL(path.join(repoRoot, "dist/handlers/updateEventStatus.js")).href),
+  resetLocalDatabase: () => import(pathToFileURL(path.join(repoRoot, "dist/handlers/resetLocalDatabase.js")).href),
   getUploadUrl: () => import(pathToFileURL(path.join(repoRoot, "dist/handlers/getUploadUrl.js")).href),
   detectImage: () => import(pathToFileURL(path.join(repoRoot, "dist/handlers/detectImage.js")).href)
 };
@@ -184,6 +185,11 @@ const server = http.createServer(async (request, response) => {
 
   if (request.method === "POST" && pathname === "/upload-url") {
     await runHandler(handlerModules.getUploadUrl, request, response);
+    return;
+  }
+
+  if (request.method === "POST" && pathname === "/admin/reset-local-database") {
+    await runHandler(handlerModules.resetLocalDatabase, request, response);
     return;
   }
 

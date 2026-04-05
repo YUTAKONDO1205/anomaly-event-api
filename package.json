@@ -4,6 +4,7 @@
   "private": true,
   "description": "Serverless anomaly event management API on AWS",
   "scripts": {
+    "aws:prepare-deep-learning": "node scripts/prepare-aws-deep-learning-artifacts.mjs",
     "build": "npm run clean && tsc",
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "dataset:index": "node scripts/build-dataset-index.mjs",
@@ -12,13 +13,17 @@
     "local": "npm run build && node scripts/local-dev-server.mjs",
     "ml:train": "node scripts/train-python-model.mjs",
     "typecheck": "tsc --noEmit",
-    "sam:build": "npm run build && sam build",
-    "sam:local": "npm run build && sam local start-api",
-    "sam:deploy": "npm run build && sam build && sam deploy --guided",
+    "sam:build": "npm run build && npm run aws:prepare-deep-learning && sam build",
+    "sam:build:deep": "npm run sam:build",
+    "sam:local": "npm run build && npm run aws:prepare-deep-learning && sam local start-api",
+    "sam:deploy": "npm run sam:build && sam deploy --guided",
+    "sam:deploy:deep": "npm run sam:deploy",
+    "sam:publish-web": "node scripts/publish-frontend-aws.mjs --stack-name anomaly-event-api",
     "test": "npm run build && node --test"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.879.0",
+    "@aws-sdk/client-lambda": "^3.1024.0",
     "@aws-sdk/client-rekognition": "^3.879.0",
     "@aws-sdk/client-s3": "^3.879.0",
     "@aws-sdk/lib-dynamodb": "^3.879.0",
