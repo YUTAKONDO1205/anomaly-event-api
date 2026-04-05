@@ -4,9 +4,9 @@ version = 0.1
 stack_name = "anomaly-event-api"
 resolve_s3 = true
 s3_prefix = "anomaly-event-api"
-region = "ap-northeast-1"
 capabilities = "CAPABILITY_IAM"
-image_repositories = []
+image_repositories = ["DeepLearningInferenceFunction=710271936982.dkr.ecr.ap-northeast-1.amazonaws.com/anomalyeventapi6e2b7623/deeplearninginferencefunction5a94a345repo"]
+parameter_overrides = "DetectionProvider=\"aws-deep-learning\" RekognitionProjectVersionArn=\"\" DetectionTargetLabel=\"Positive\" DetectionMinConfidence=\"80\""
 
 [default.global.parameters]
 region = "ap-northeast-1"

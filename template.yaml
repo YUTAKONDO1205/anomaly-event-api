@@ -30,7 +30,6 @@ Globals:
         DETECTION_PROVIDER: !Ref DetectionProvider
         EVENTS_TABLE: !Ref EventsTable
         EVENT_IMAGES_BUCKET: !Ref EventImagesBucket
-        AWS_DEEP_LEARNING_FUNCTION_NAME: !Ref DeepLearningInferenceFunction
         PYTHON_MODEL_PATH: aws/deep-learning-artifacts/model/crack-local-model.json
         REKOGNITION_PROJECT_VERSION_ARN: !Ref RekognitionProjectVersionArn
         DETECTION_TARGET_LABEL: !Ref DetectionTargetLabel
@@ -161,6 +160,9 @@ Resources:
       Handler: dist/handlers/detectImage.handler
       Timeout: 30
       MemorySize: 512
+      Environment:
+        Variables:
+          AWS_DEEP_LEARNING_FUNCTION_NAME: !Ref DeepLearningInferenceFunction
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref EventsTable
