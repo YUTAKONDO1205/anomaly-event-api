@@ -6,18 +6,19 @@
 Browser UI
   -> POST /upload-url
   -> POST /detect
-     -> write local image
+     -> save local image
      -> PythonDetectionService
         -> python/crack_ml.py
            -> load manifest
-           -> train model if needed
-           -> infer confidence + explanation
+           -> train MobileNetV2 if needed
+           -> run deep-learning inference
+           -> build Grad-CAM explanation
      -> create event when anomalyDetected = true
   -> GET /events
   -> GET /dashboard
 ```
 
-### Local Detection Output
+## Local Detection Output
 
 - `anomalyDetected`
 - `anomalyConfidence`
@@ -28,8 +29,10 @@ Browser UI
 - `explanation.contributions`
 - `explanation.focusRegions`
 - `explanation.attentionGrid`
+- `explanation.heatmap.rawDataUrl`
+- `explanation.heatmap.overlayDataUrl`
 
-### Local Setup
+## Local Setup
 
 ```bash
 npm install
@@ -50,4 +53,4 @@ Client
   -> DynamoDB
 ```
 
-AWS mode continues to use Rekognition and does not rely on the local Python model.
+AWS mode continues to use Rekognition and does not depend on the local deep-learning model.

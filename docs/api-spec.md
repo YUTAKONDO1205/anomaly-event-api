@@ -20,52 +20,9 @@
 
 Returns runtime, dataset, model, and event summary.
 
-```json
-{
-  "message": "Dashboard snapshot fetched",
-  "data": {
-    "runtime": {
-      "storageMode": "local",
-      "detectionProvider": "python",
-      "targetLabel": "Positive",
-      "threshold": 55
-    },
-    "dataset": {
-      "positiveSamples": 100,
-      "negativeSamples": 100,
-      "totalSamples": 200,
-      "generatedAt": "2026-04-04T15:32:41.287Z"
-    },
-    "model": {
-      "provider": "python",
-      "classifier": "Local Crack Logistic Regression",
-      "version": "local-crack-ml-v1",
-      "trainedAt": "2026-04-04T16:12:00.000Z",
-      "ready": true
-    },
-    "events": {
-      "total": 4,
-      "averageConfidence": 0.6352,
-      "latestDetectionAt": "2026-04-04T16:13:31.000Z",
-      "byStatus": {
-        "NEW": 4,
-        "CHECKING": 0,
-        "RESOLVED": 0
-      },
-      "bySeverity": {
-        "LOW": 0,
-        "MEDIUM": 1,
-        "HIGH": 3
-      }
-    },
-    "highlights": []
-  }
-}
-```
-
 ### `GET /events`
 
-List stored events.
+List events.
 
 Optional query:
 
@@ -99,7 +56,7 @@ Returns a single event.
   "deviceId": "drone-001",
   "sectionId": "A-12",
   "distance": 12.4,
-  "detectedAt": "2026-04-04T10:00:00Z",
+  "detectedAt": "2026-04-05T00:00:00Z",
   "imageKey": "images/sample.jpg",
   "imageContentType": "image/jpeg",
   "imageDataBase64": "optional-in-local-mode",
@@ -107,7 +64,7 @@ Returns a single event.
 }
 ```
 
-Extended response example:
+Deep learning response example:
 
 ```json
 {
@@ -115,37 +72,36 @@ Extended response example:
   "data": {
     "imageKey": "images/sample.jpg",
     "anomalyDetected": true,
-    "anomalyConfidence": 99.37,
+    "anomalyConfidence": 97.2,
     "threshold": 55,
     "targetLabel": "Positive",
     "topLabel": {
       "name": "Positive",
-      "confidence": 99.37
+      "confidence": 97.2
     },
-    "labels": [],
     "provider": "python",
-    "processingMs": 184,
+    "processingMs": 420,
     "model": {
       "provider": "python",
-      "classifier": "Local Crack Logistic Regression",
-      "version": "local-crack-ml-v1",
-      "trainedAt": "2026-04-04T16:12:00.000Z",
+      "classifier": "MobileNetV2 Transfer Learning",
+      "version": "deep-mobilenetv2-v1",
+      "trainedAt": "2026-04-05T00:00:00.000Z",
       "ready": true,
       "metrics": {
-        "accuracy": 1,
-        "precision": 1,
-        "recall": 1,
-        "f1": 1,
-        "auc": 1,
-        "recommendedThreshold": 0.35
+        "accuracy": 0.98,
+        "precision": 0.98,
+        "recall": 0.98,
+        "f1": 0.98,
+        "auc": 0.99,
+        "recommendedThreshold": 0.42
       }
     },
     "explanation": {
-      "summary": "Crack-like structure is dominant...",
+      "summary": "Deep model activated around...",
       "confidenceBand": "HIGH",
       "dominantSignals": [
-        "Hotspot block 1-1",
-        "Local contrast"
+        "Crack probability",
+        "Activation block 1-1"
       ],
       "recommendedAction": "Flag this frame for operator review...",
       "contributions": [],
@@ -154,15 +110,22 @@ Extended response example:
         "rows": 6,
         "cols": 6,
         "values": []
+      },
+      "heatmap": {
+        "width": 160,
+        "height": 160,
+        "alpha": 0.42,
+        "rawDataUrl": "data:image/png;base64,...",
+        "overlayDataUrl": "data:image/png;base64,..."
       }
     },
     "event": {
       "eventId": "generated-uuid",
       "severity": "HIGH",
-      "detectionProvider": "python",
-      "topLabel": "Positive",
-      "evidenceSummary": "Crack-like structure is dominant..."
+      "detectionProvider": "python"
     }
   }
 }
 ```
+
+`explanation.heatmap.rawDataUrl` returns the Grad-CAM heatmap image, and `explanation.heatmap.overlayDataUrl` returns the same heatmap blended onto the input image.

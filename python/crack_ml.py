@@ -1,46 +1,71 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import copy
+import base64
 import hashlib
+import io
 import json
-import math
 import random
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 try:
     import numpy as np
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
     from PIL import Image
+    from torch.utils.data import DataLoader, Dataset
+    from torchvision import transforms
+    from torchvision.models import MobileNet_V2_Weights, mobilenet_v2
 except Exception as exc:  # pragma: no cover
     sys.stderr.write(
-        "Python dependencies are missing. Run `pip install -r requirements.txt` before using the local ML pipeline.\n"
+        "Python dependencies are missing. Run `pip install -r requirements.txt` before using the deep learning pipeline.\n"
     )
     sys.stderr.write(f"{exc}\n")
     raise
 
-MODEL_VERSION = "local-crack-ml-v1"
+MODEL_VERSION = "deep-mobilenetv2-v1"
+MODEL_CLASSIFIER = "MobileNetV2 Transfer Learning"
 IMAGE_SIZE = 160
-FEATURE_GRID = 4
-ATTENTION_GRID = 6
+BATCH_SIZE = 16
+HEAD_EPOCHS = 2
+FINETUNE_EPOCHS = 1
 TRAIN_RATIO = 0.7
 VALIDATION_RATIO = 0.15
-TRAINING_STEPS = 700
-BASE_LEARNING_RATE = 0.24
-REGULARIZATION = 0.012
+HEAD_LR = 1e-3
+FINETUNE_LR = 1e-4
+WEIGHT_DECAY = 1e-4
+ATTENTION_GRID = 6
 RANDOM_SEED = 42
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD = [0.229, 0.224, 0.225]
 
-FEATURE_LABELS = {
-    "darkness": "Surface darkness",
-    "contrast": "Local contrast",
-    "edge_density": "Edge density",
-    "dark_edge_density": "Dark edge density",
-    "texture_energy": "Texture energy",
-    "entropy": "Texture entropy",
-    "orientation_bias": "Directional continuity",
-    "hotspot_spread": "Hotspot spread",
-    "central_focus": "Central focus",
-}
+
+@dataclass
+class ManifestEntry:
+    file_path: Path
+    label: int
+    label_name: str
+
+
+class CrackDataset(Dataset):
+    def __init__(self, entries: list[ManifestEntry], transform):
+        self.entries = entries
+        self.transform = transform
+
+    def __len__(self) -> int:
+        return len(self.entries)
+
+    def __getitem__(self, index: int):
+        entry = self.entries[index]
+        image = Image.open(entry.file_path).convert("RGB")
+        tensor = self.transform(image)
+        label = torch.tensor([float(entry.label)], dtype=torch.float32)
+        return tensor, label
 
 
 def read_stdin_payload() -> dict:
@@ -54,9 +79,143 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def sigmoid(values: np.ndarray) -> np.ndarray:
-    clipped = np.clip(values, -35.0, 35.0)
-    return 1.0 / (1.0 + np.exp(-clipped))
+def set_seed() -> None:
+    random.seed(RANDOM_SEED)
+    np.random.seed(RANDOM_SEED)
+    torch.manual_seed(RANDOM_SEED)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(RANDOM_SEED)
+
+
+def manifest_signature(path: Path) -> str:
+    digest = hashlib.sha256()
+    digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def load_manifest(path: Path) -> dict:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data.get("images"), list):
+        raise ValueError("Dataset manifest does not contain an images array")
+    return data
+
+
+def parse_entries(manifest: dict) -> list[ManifestEntry]:
+    entries: list[ManifestEntry] = []
+    for item in manifest["images"]:
+        label_name = item["label"]
+        entries.append(
+            ManifestEntry(
+                file_path=Path(item["filePath"]),
+                label=1 if label_name == "Positive" else 0,
+                label_name=label_name,
+            )
+        )
+    return entries
+
+
+def stratified_split(entries: list[ManifestEntry]) -> dict[str, list[ManifestEntry]]:
+    positives = [entry for entry in entries if entry.label == 1]
+    negatives = [entry for entry in entries if entry.label == 0]
+    random.Random(RANDOM_SEED).shuffle(positives)
+    random.Random(RANDOM_SEED + 1).shuffle(negatives)
+
+    def split_group(group: list[ManifestEntry]) -> tuple[list[ManifestEntry], list[ManifestEntry], list[ManifestEntry]]:
+        total = len(group)
+        train_end = max(1, int(total * TRAIN_RATIO))
+        validation_end = max(train_end + 1, int(total * (TRAIN_RATIO + VALIDATION_RATIO)))
+        validation_end = min(validation_end, total - 1)
+        return group[:train_end], group[train_end:validation_end], group[validation_end:]
+
+    pos_train, pos_val, pos_test = split_group(positives)
+    neg_train, neg_val, neg_test = split_group(negatives)
+
+    train = pos_train + neg_train
+    validation = pos_val + neg_val
+    test = pos_test + neg_test
+    random.Random(RANDOM_SEED).shuffle(train)
+    random.Random(RANDOM_SEED + 1).shuffle(validation)
+    random.Random(RANDOM_SEED + 2).shuffle(test)
+    return {"train": train, "validation": validation, "test": test}
+
+
+def build_transforms():
+    train_transform = transforms.Compose(
+        [
+            transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ColorJitter(brightness=0.1, contrast=0.1),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ]
+    )
+    eval_transform = transforms.Compose(
+        [
+            transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ]
+    )
+    return train_transform, eval_transform
+
+
+def build_dataloaders(entries: list[ManifestEntry]) -> tuple[dict[str, DataLoader], dict]:
+    train_transform, eval_transform = build_transforms()
+    split = stratified_split(entries)
+    loaders = {
+        "train": DataLoader(
+            CrackDataset(split["train"], train_transform),
+            batch_size=BATCH_SIZE,
+            shuffle=True,
+            num_workers=0,
+        ),
+        "validation": DataLoader(
+            CrackDataset(split["validation"], eval_transform),
+            batch_size=BATCH_SIZE,
+            shuffle=False,
+            num_workers=0,
+        ),
+        "test": DataLoader(
+            CrackDataset(split["test"], eval_transform),
+            batch_size=BATCH_SIZE,
+            shuffle=False,
+            num_workers=0,
+        ),
+    }
+    return loaders, split
+
+
+def get_device() -> torch.device:
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def build_model(pretrained: bool = True) -> nn.Module:
+    if pretrained:
+        try:
+            model = mobilenet_v2(weights=MobileNet_V2_Weights.DEFAULT)
+        except Exception:
+            model = mobilenet_v2(weights=None)
+    else:
+        model = mobilenet_v2(weights=None)
+    model.classifier[1] = nn.Linear(model.classifier[1].in_features, 1)
+    return model
+
+
+def freeze_backbone(model: nn.Module) -> None:
+    for param in model.features.parameters():
+        param.requires_grad = False
+    for param in model.classifier.parameters():
+        param.requires_grad = True
+
+
+def unfreeze_tail(model: nn.Module) -> None:
+    for layer in model.features[-4:]:
+        for param in layer.parameters():
+            param.requires_grad = True
+
+
+def sigmoid_scores(logits: torch.Tensor) -> torch.Tensor:
+    return torch.sigmoid(logits.view(-1))
 
 
 def log_loss(y_true: np.ndarray, y_score: np.ndarray) -> float:
@@ -99,7 +258,7 @@ def binary_metrics(y_true: np.ndarray, y_score: np.ndarray, threshold: float) ->
 def choose_threshold(y_true: np.ndarray, y_score: np.ndarray) -> float:
     best_threshold = 0.5
     best_f1 = -1.0
-    for threshold in np.linspace(0.35, 0.8, 46):
+    for threshold in np.linspace(0.25, 0.75, 51):
         metrics = binary_metrics(y_true, y_score, float(threshold))
         if metrics["f1"] > best_f1:
             best_f1 = metrics["f1"]
@@ -107,55 +266,200 @@ def choose_threshold(y_true: np.ndarray, y_score: np.ndarray) -> float:
     return round(best_threshold, 4)
 
 
-def manifest_signature(path: Path) -> str:
-    digest = hashlib.sha256()
-    digest.update(path.read_bytes())
-    return digest.hexdigest()
+def evaluate(model: nn.Module, loader: DataLoader, device: torch.device, criterion) -> tuple[float, np.ndarray, np.ndarray]:
+    model.eval()
+    losses: list[float] = []
+    all_scores: list[float] = []
+    all_labels: list[float] = []
+
+    with torch.no_grad():
+        for images, labels in loader:
+            images = images.to(device)
+            labels = labels.to(device)
+            logits = model(images)
+            loss = criterion(logits, labels)
+            losses.append(float(loss.item()))
+            all_scores.extend(sigmoid_scores(logits).cpu().numpy().tolist())
+            all_labels.extend(labels.view(-1).cpu().numpy().tolist())
+
+    return float(np.mean(losses)), np.asarray(all_labels, dtype=np.float32), np.asarray(all_scores, dtype=np.float32)
 
 
-def load_manifest(path: Path) -> dict:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data.get("images"), list):
-        raise ValueError("Dataset manifest does not contain an images array")
-    return data
-
-
-def resampling_filter():
-    try:
-        return Image.Resampling.BILINEAR
-    except AttributeError:  # pragma: no cover
-        return Image.BILINEAR
-
-
-def load_gray_image(path: Path) -> np.ndarray:
-    image = Image.open(path).convert("RGB").resize((IMAGE_SIZE, IMAGE_SIZE), resampling_filter())
-    rgb = np.asarray(image, dtype=np.float32) / 255.0
-    return rgb[..., 0] * 0.299 + rgb[..., 1] * 0.587 + rgb[..., 2] * 0.114
-
-
-def sobel(gray: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    gx = (
-        -gray[:-2, :-2]
-        - 2.0 * gray[1:-1, :-2]
-        - gray[2:, :-2]
-        + gray[:-2, 2:]
-        + 2.0 * gray[1:-1, 2:]
-        + gray[2:, 2:]
+def train_phase(
+    model: nn.Module,
+    loaders: dict[str, DataLoader],
+    device: torch.device,
+    epochs: int,
+    learning_rate: float,
+    best_state: dict | None = None,
+    best_val_loss: float = float("inf"),
+) -> tuple[dict, float, list[dict]]:
+    criterion = nn.BCEWithLogitsLoss()
+    optimizer = torch.optim.AdamW(
+        [param for param in model.parameters() if param.requires_grad],
+        lr=learning_rate,
+        weight_decay=WEIGHT_DECAY,
     )
-    gy = (
-        -gray[:-2, :-2]
-        - 2.0 * gray[:-2, 1:-1]
-        - gray[:-2, 2:]
-        + gray[2:, :-2]
-        + 2.0 * gray[2:, 1:-1]
-        + gray[2:, 2:]
+    history: list[dict] = []
+    current_best_state = best_state
+    current_best_loss = best_val_loss
+
+    for epoch in range(epochs):
+        model.train()
+        train_losses: list[float] = []
+        for images, labels in loaders["train"]:
+            images = images.to(device)
+            labels = labels.to(device)
+            optimizer.zero_grad(set_to_none=True)
+            logits = model(images)
+            loss = criterion(logits, labels)
+            loss.backward()
+            optimizer.step()
+            train_losses.append(float(loss.item()))
+
+        val_loss, val_labels, val_scores = evaluate(model, loaders["validation"], device, criterion)
+        val_auc = auc_score(val_labels, val_scores)
+        history.append(
+            {
+                "epoch": epoch + 1,
+                "trainLoss": round(float(np.mean(train_losses)), 5),
+                "valLoss": round(val_loss, 5),
+                "valAuc": round(float(val_auc), 5),
+            }
+        )
+
+        if val_loss < current_best_loss:
+            current_best_loss = val_loss
+            current_best_state = copy.deepcopy(model.state_dict())
+
+    return current_best_state, current_best_loss, history
+
+
+def weights_path_for(model_path: Path) -> Path:
+    return model_path.with_suffix(".pt")
+
+
+def train_model(manifest_path: Path, model_path: Path) -> dict:
+    set_seed()
+    manifest = load_manifest(manifest_path)
+    entries = parse_entries(manifest)
+    if not entries:
+        raise ValueError("Dataset manifest does not contain any indexed images")
+
+    loaders, split = build_dataloaders(entries)
+    device = get_device()
+    model = build_model(pretrained=True).to(device)
+
+    freeze_backbone(model)
+    best_state, best_val_loss, head_history = train_phase(model, loaders, device, HEAD_EPOCHS, HEAD_LR)
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
+
+    unfreeze_tail(model)
+    best_state, best_val_loss, finetune_history = train_phase(
+        model,
+        loaders,
+        device,
+        FINETUNE_EPOCHS,
+        FINETUNE_LR,
+        best_state=best_state,
+        best_val_loss=best_val_loss,
     )
-    grad = np.sqrt(gx ** 2 + gy ** 2)
-    center = gray[1:-1, 1:-1]
-    return gx, gy, grad, center
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
+
+    criterion = nn.BCEWithLogitsLoss()
+    _, val_labels, val_scores = evaluate(model, loaders["validation"], device, criterion)
+    _, test_labels, test_scores = evaluate(model, loaders["test"], device, criterion)
+    threshold = choose_threshold(val_labels, val_scores)
+    metrics = binary_metrics(test_labels, test_scores, threshold)
+    metrics["recommendedThreshold"] = round(float(threshold), 4)
+
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    weights_path = weights_path_for(model_path)
+    torch.save(model.state_dict(), weights_path)
+
+    artifact = {
+        "classifier": MODEL_CLASSIFIER,
+        "architecture": "torchvision.mobilenet_v2",
+        "version": MODEL_VERSION,
+        "trainedAt": now_iso(),
+        "manifestSignature": manifest_signature(manifest_path),
+        "weightsFile": str(weights_path),
+        "imageSize": IMAGE_SIZE,
+        "preprocessing": {
+            "mean": IMAGENET_MEAN,
+            "std": IMAGENET_STD,
+        },
+        "dataset": {
+            "positive": sum(1 for entry in entries if entry.label == 1),
+            "negative": sum(1 for entry in entries if entry.label == 0),
+            "total": len(entries),
+            "manifestGeneratedAt": manifest.get("generatedAt"),
+            "train": len(split["train"]),
+            "validation": len(split["validation"]),
+            "test": len(split["test"]),
+        },
+        "metrics": metrics,
+        "trainingHistory": {
+            "head": head_history,
+            "finetune": finetune_history,
+        },
+        "device": str(device),
+    }
+    model_path.write_text(json.dumps(artifact, indent=2), encoding="utf-8")
+    return artifact
 
 
-def grid_pool(values: np.ndarray, rows: int, cols: int) -> np.ndarray:
+def load_or_train_model(manifest_path: Path, model_path: Path, force_retrain: bool = False) -> dict:
+    signature = manifest_signature(manifest_path)
+    if not force_retrain and model_path.exists():
+        artifact = json.loads(model_path.read_text(encoding="utf-8"))
+        weights_file = Path(artifact.get("weightsFile", ""))
+        if (
+            artifact.get("manifestSignature") == signature
+            and artifact.get("version") == MODEL_VERSION
+            and weights_file.exists()
+        ):
+            return artifact
+    return train_model(manifest_path, model_path)
+
+
+def load_model_for_inference(artifact: dict, device: torch.device) -> nn.Module:
+    model = build_model(pretrained=False).to(device)
+    state_dict = torch.load(artifact["weightsFile"], map_location=device)
+    model.load_state_dict(state_dict)
+    model.eval()
+    return model
+
+
+def build_eval_transform():
+    return transforms.Compose(
+        [
+            transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ]
+    )
+
+
+def load_image_tensor(image_path: Path, device: torch.device) -> torch.Tensor:
+    image = Image.open(image_path).convert("RGB")
+    tensor = build_eval_transform()(image).unsqueeze(0).to(device)
+    return tensor
+
+
+def confidence_band(probability: float) -> str:
+    if probability >= 0.85 or probability <= 0.15:
+        return "HIGH"
+    if probability >= 0.7 or probability <= 0.3:
+        return "MEDIUM"
+    return "LOW"
+
+
+def pool_grid(values: np.ndarray, rows: int, cols: int) -> np.ndarray:
     height, width = values.shape
     row_splits = np.linspace(0, height, rows + 1, dtype=int)
     col_splits = np.linspace(0, width, cols + 1, dtype=int)
@@ -167,63 +471,82 @@ def grid_pool(values: np.ndarray, rows: int, cols: int) -> np.ndarray:
     return np.asarray(pooled, dtype=np.float32)
 
 
-def extract_bundle(image_path: Path) -> dict:
-    gray = load_gray_image(image_path)
-    gx, gy, grad, center = sobel(gray)
+def normalize_rgb_image(image_path: Path) -> np.ndarray:
+    image = Image.open(image_path).convert("RGB").resize((IMAGE_SIZE, IMAGE_SIZE))
+    return np.asarray(image, dtype=np.uint8)
 
-    grad_reference = float(np.quantile(grad, 0.98)) if grad.size else 1.0
-    grad_norm = np.clip(grad / max(grad_reference, 1e-6), 0.0, 1.0)
-    darkness_map = np.clip((0.62 - center) / 0.62, 0.0, 1.0)
-    attention = np.clip(0.72 * grad_norm + 0.28 * darkness_map, 0.0, 1.0)
 
-    histogram, _ = np.histogram(center, bins=16, range=(0.0, 1.0), density=True)
-    histogram = histogram / max(histogram.sum(), 1e-6)
-    entropy = float(-(histogram * np.log2(histogram + 1e-8)).sum() / math.log2(16))
+def apply_heatmap_palette(heatmap: np.ndarray) -> np.ndarray:
+    clipped = np.clip(heatmap, 0.0, 1.0)
+    red = np.clip(1.8 * clipped - 0.35, 0.0, 1.0)
+    green = np.clip(1.9 - 2.4 * np.abs(clipped - 0.5), 0.0, 1.0)
+    blue = np.clip(1.35 - 1.7 * clipped, 0.0, 1.0)
+    stacked = np.stack([red, green, blue], axis=-1)
+    return (stacked * 255.0).astype(np.uint8)
 
-    feature_map = {
-        "darkness": float(np.clip((0.58 - float(center.mean())) / 0.58, 0.0, 1.0)),
-        "contrast": float(np.clip(center.std() / 0.32, 0.0, 1.0)),
-        "edge_density": float((grad_norm > 0.36).mean()),
-        "dark_edge_density": float(np.logical_and(grad_norm > 0.34, center < 0.48).mean()),
-        "texture_energy": float(grad_norm.mean()),
-        "entropy": float(np.clip(entropy, 0.0, 1.0)),
-        "orientation_bias": float(
-            max(abs(gx).mean(), abs(gy).mean()) / max(1e-6, abs(gx).mean() + abs(gy).mean())
-        ),
+
+def png_data_url_base64(image_array: np.ndarray) -> str:
+    buffer = io.BytesIO()
+    Image.fromarray(image_array).save(buffer, format="PNG")
+    encoded = buffer.getvalue()
+    return "data:image/png;base64," + base64.b64encode(encoded).decode("ascii")
+
+
+def build_heatmap_output(image_path: Path, heatmap: np.ndarray, alpha: float = 0.42) -> dict:
+    base_image = normalize_rgb_image(image_path)
+    heatmap_rgb = apply_heatmap_palette(heatmap)
+    overlay = np.clip(base_image.astype(np.float32) * (1.0 - alpha) + heatmap_rgb.astype(np.float32) * alpha, 0, 255).astype(np.uint8)
+    return {
+        "width": IMAGE_SIZE,
+        "height": IMAGE_SIZE,
+        "alpha": alpha,
+        "rawDataUrl": png_data_url_base64(heatmap_rgb),
+        "overlayDataUrl": png_data_url_base64(overlay),
     }
 
-    attention_grid = grid_pool(attention, ATTENTION_GRID, ATTENTION_GRID)
-    feature_map["hotspot_spread"] = float(np.clip(attention_grid.std() / 0.28, 0.0, 1.0))
-    center_slice = attention_grid.reshape(ATTENTION_GRID, ATTENTION_GRID)[2:4, 2:4]
-    feature_map["central_focus"] = float(np.clip(center_slice.mean() - attention_grid.mean() + 0.5, 0.0, 1.0))
 
-    feature_vector = [feature_map[name] for name in FEATURE_LABELS]
-    patch_features = grid_pool(attention, FEATURE_GRID, FEATURE_GRID)
-    feature_names = list(FEATURE_LABELS.keys()) + [
-        f"patch_{row_index + 1}_{col_index + 1}"
-        for row_index in range(FEATURE_GRID)
-        for col_index in range(FEATURE_GRID)
-    ]
-    feature_labels = {
-        **FEATURE_LABELS,
-        **{
-            f"patch_{row_index + 1}_{col_index + 1}": f"Hotspot block {row_index + 1}-{col_index + 1}"
-            for row_index in range(FEATURE_GRID)
-            for col_index in range(FEATURE_GRID)
-        },
-    }
+def compute_gradcam(model: nn.Module, input_tensor: torch.Tensor) -> np.ndarray:
+    activations = None
+    gradients = None
 
-    vector = np.asarray(feature_vector + patch_features.tolist(), dtype=np.float32)
+    def save_gradient(grad):
+        nonlocal gradients
+        gradients = grad
+
+    def forward_hook(_module, _inputs, output):
+        nonlocal activations
+        activations = output
+        output.register_hook(save_gradient)
+
+    handle = model.features[-1].register_forward_hook(forward_hook)
+    try:
+        model.zero_grad(set_to_none=True)
+        logits = model(input_tensor)
+        logits[:, 0].backward(torch.ones_like(logits[:, 0]))
+        if activations is None or gradients is None:
+            raise RuntimeError("Failed to capture MobileNet feature maps for Grad-CAM")
+
+        pooled_gradients = gradients.mean(dim=(2, 3), keepdim=True)
+        cam = torch.relu((pooled_gradients * activations).sum(dim=1, keepdim=True))
+        cam = F.interpolate(cam, size=(IMAGE_SIZE, IMAGE_SIZE), mode="bilinear", align_corners=False)
+        cam = cam[0, 0]
+        cam = cam - cam.min()
+        cam = cam / (cam.max() + 1e-8)
+        return cam.detach().cpu().numpy()
+    finally:
+        handle.remove()
+
+
+def build_focus_regions(attention_grid: np.ndarray) -> list[dict]:
+    indexed = sorted(enumerate(attention_grid.tolist()), key=lambda item: item[1], reverse=True)[:3]
     regions = []
-    flat_attention = attention_grid.tolist()
-    indexed = sorted(enumerate(flat_attention), key=lambda item: item[1], reverse=True)[:3]
     for rank, (index, intensity) in enumerate(indexed, start=1):
         row_index = index // ATTENTION_GRID
         col_index = index % ATTENTION_GRID
         regions.append(
             {
                 "id": f"region-{rank}",
-                "label": f"Hotspot {rank}",
+                "label": f"Activation {rank}",
                 "x": round(col_index / ATTENTION_GRID, 4),
                 "y": round(row_index / ATTENTION_GRID, 4),
                 "width": round(1.0 / ATTENTION_GRID, 4),
@@ -231,172 +554,52 @@ def extract_bundle(image_path: Path) -> dict:
                 "intensity": round(float(intensity), 4),
             }
         )
-
-    return {
-        "vector": vector,
-        "feature_names": feature_names,
-        "feature_labels": feature_labels,
-        "attention_grid": [round(float(value), 4) for value in attention_grid.tolist()],
-        "focus_regions": regions,
-    }
+    return regions
 
 
-def stratified_split(labels: np.ndarray) -> dict:
-    positives = [index for index, label in enumerate(labels.tolist()) if label == 1.0]
-    negatives = [index for index, label in enumerate(labels.tolist()) if label == 0.0]
-    random.Random(RANDOM_SEED).shuffle(positives)
-    random.Random(RANDOM_SEED + 1).shuffle(negatives)
-
-    def split_indices(indices: list[int]) -> tuple[list[int], list[int], list[int]]:
-        total = len(indices)
-        train_end = max(1, int(total * TRAIN_RATIO))
-        validation_end = max(train_end + 1, int(total * (TRAIN_RATIO + VALIDATION_RATIO)))
-        validation_end = min(validation_end, total - 1)
-        return indices[:train_end], indices[train_end:validation_end], indices[validation_end:]
-
-    pos_train, pos_val, pos_test = split_indices(positives)
-    neg_train, neg_val, neg_test = split_indices(negatives)
-    train_indices = pos_train + neg_train
-    validation_indices = pos_val + neg_val
-    test_indices = pos_test + neg_test
-    random.Random(RANDOM_SEED).shuffle(train_indices)
-    random.Random(RANDOM_SEED + 1).shuffle(validation_indices)
-    random.Random(RANDOM_SEED + 2).shuffle(test_indices)
-    return {
-        "train": np.asarray(train_indices, dtype=int),
-        "validation": np.asarray(validation_indices, dtype=int),
-        "test": np.asarray(test_indices, dtype=int),
-    }
-
-
-def standardize(matrix: np.ndarray, mean: np.ndarray | None = None, std: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    if mean is None:
-        mean = matrix.mean(axis=0)
-    if std is None:
-        std = matrix.std(axis=0)
-    std = np.where(std < 1e-6, 1.0, std)
-    return (matrix - mean) / std, mean, std
-
-
-def fit_logistic_regression(
-    x_train: np.ndarray, y_train: np.ndarray, x_val: np.ndarray, y_val: np.ndarray
-) -> tuple[np.ndarray, float]:
-    weights = np.zeros(x_train.shape[1], dtype=np.float32)
-    bias = 0.0
-    best_weights = weights.copy()
-    best_bias = bias
-    best_loss = float("inf")
-    patience = 90
-    remaining_patience = patience
-
-    for step in range(TRAINING_STEPS):
-        predictions = sigmoid(x_train @ weights + bias)
-        error = predictions - y_train
-        grad_w = (x_train.T @ error) / float(len(x_train)) + REGULARIZATION * weights
-        grad_b = float(error.mean())
-        learning_rate = BASE_LEARNING_RATE * (0.985 ** (step / 40.0))
-        weights -= learning_rate * grad_w
-        bias -= learning_rate * grad_b
-
-        current_loss = log_loss(y_val, sigmoid(x_val @ weights + bias))
-        if current_loss < best_loss - 1e-5:
-            best_loss = current_loss
-            best_weights = weights.copy()
-            best_bias = bias
-            remaining_patience = patience
-        else:
-            remaining_patience -= 1
-            if remaining_patience <= 0:
-                break
-
-    return best_weights, float(best_bias)
-
-
-def train_model(manifest_path: Path, model_path: Path) -> dict:
-    manifest = load_manifest(manifest_path)
-    if not manifest["images"]:
-        raise ValueError("Dataset manifest does not contain any indexed images")
-
-    feature_rows = []
-    labels = []
-    feature_names = []
-    feature_labels = {}
-
-    for entry in manifest["images"]:
-        bundle = extract_bundle(Path(entry["filePath"]))
-        feature_rows.append(bundle["vector"])
-        labels.append(1.0 if entry["label"] == "Positive" else 0.0)
-        feature_names = bundle["feature_names"]
-        feature_labels = bundle["feature_labels"]
-
-    matrix = np.vstack(feature_rows).astype(np.float32)
-    label_array = np.asarray(labels, dtype=np.float32)
-    split = stratified_split(label_array)
-
-    x_train, mean, std = standardize(matrix[split["train"]])
-    x_val = (matrix[split["validation"]] - mean) / std
-    x_test = (matrix[split["test"]] - mean) / std
-    y_train = label_array[split["train"]]
-    y_val = label_array[split["validation"]]
-    y_test = label_array[split["test"]]
-
-    weights, bias = fit_logistic_regression(x_train, y_train, x_val, y_val)
-    validation_scores = sigmoid(x_val @ weights + bias)
-    threshold = choose_threshold(y_val, validation_scores)
-    test_scores = sigmoid(x_test @ weights + bias)
-    metrics = binary_metrics(y_test, test_scores, threshold)
-    metrics["recommendedThreshold"] = round(float(threshold), 4)
-
-    artifact = {
-        "classifier": "Local Crack Logistic Regression",
-        "version": MODEL_VERSION,
-        "trainedAt": now_iso(),
-        "manifestSignature": manifest_signature(manifest_path),
-        "dataset": {
-            "positive": int((label_array == 1.0).sum()),
-            "negative": int((label_array == 0.0).sum()),
-            "total": int(len(label_array)),
-            "manifestGeneratedAt": manifest.get("generatedAt"),
+def build_contributions(probability: float, attention_grid: np.ndarray) -> list[dict]:
+    contributions = [
+        {
+            "key": "crack_probability",
+            "label": "Crack probability",
+            "value": round(float(probability), 4),
+            "contribution": round(float(probability), 4),
+            "direction": "supports" if probability >= 0.5 else "suppresses",
         },
-        "featureNames": feature_names,
-        "featureLabels": feature_labels,
-        "mean": mean.tolist(),
-        "std": std.tolist(),
-        "weights": weights.tolist(),
-        "bias": float(bias),
-        "metrics": metrics,
-    }
+        {
+            "key": "normal_probability",
+            "label": "Normal surface probability",
+            "value": round(float(1.0 - probability), 4),
+            "contribution": round(float(1.0 - probability), 4),
+            "direction": "supports" if probability < 0.5 else "suppresses",
+        },
+    ]
 
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    model_path.write_text(json.dumps(artifact, indent=2), encoding="utf-8")
-    return artifact
-
-
-def load_or_train_model(manifest_path: Path, model_path: Path, force_retrain: bool = False) -> dict:
-    current_signature = manifest_signature(manifest_path)
-    if not force_retrain and model_path.exists():
-        artifact = json.loads(model_path.read_text(encoding="utf-8"))
-        if artifact.get("manifestSignature") == current_signature and artifact.get("version") == MODEL_VERSION:
-            return artifact
-    return train_model(manifest_path, model_path)
-
-
-def confidence_band(probability: float) -> str:
-    if probability >= 0.85 or probability <= 0.15:
-        return "HIGH"
-    if probability >= 0.7 or probability <= 0.3:
-        return "MEDIUM"
-    return "LOW"
-
-
-def build_summary(anomaly_detected: bool, confidence: float, dominant: list[str], focus_regions: list[dict]) -> str:
-    hotspot_count = len([region for region in focus_regions if region["intensity"] >= 0.45])
-    signal = dominant[0] if dominant else "surface texture"
-    if anomaly_detected:
-        return (
-            f"Crack-like structure is dominant around {hotspot_count or 1} hotspot(s), with {signal.lower()} pushing the score to {confidence:.1f}%."
+    indexed = sorted(enumerate(attention_grid.tolist()), key=lambda item: item[1], reverse=True)[:4]
+    for rank, (index, intensity) in enumerate(indexed, start=1):
+        row_index = index // ATTENTION_GRID
+        col_index = index % ATTENTION_GRID
+        contributions.append(
+            {
+                "key": f"activation_{rank}",
+                "label": f"Activation block {row_index + 1}-{col_index + 1}",
+                "value": round(float(intensity), 4),
+                "contribution": round(float(intensity), 4),
+                "direction": "supports",
+            }
         )
-    return f"The surface stays closer to the normal pattern baseline, with {signal.lower()} remaining muted at {confidence:.1f}%."
+
+    return contributions[:6]
+
+
+def build_summary(probability: float, regions: list[dict]) -> str:
+    confidence = probability * 100.0
+    hotspot_count = len([region for region in regions if region["intensity"] >= 0.35]) or 1
+    if probability >= 0.5:
+        return (
+            f"Deep model activated around {hotspot_count} region(s), and the crack probability reached {confidence:.1f}%."
+        )
+    return f"Deep model kept the frame close to the normal texture manifold at {confidence:.1f}% crack probability."
 
 
 def infer(payload: dict) -> dict:
@@ -407,38 +610,23 @@ def infer(payload: dict) -> dict:
     threshold_percent = float(payload.get("threshold", 55))
 
     artifact = load_or_train_model(manifest_path, model_path)
-    bundle = extract_bundle(image_path)
-    vector = bundle["vector"]
-    mean = np.asarray(artifact["mean"], dtype=np.float32)
-    std = np.asarray(artifact["std"], dtype=np.float32)
-    weights = np.asarray(artifact["weights"], dtype=np.float32)
-    standardized = (vector - mean) / std
-    probability = float(sigmoid(np.asarray([standardized @ weights + artifact["bias"]], dtype=np.float32))[0])
+    device = get_device()
+    model = load_model_for_inference(artifact, device)
+    input_tensor = load_image_tensor(image_path, device)
+
+    with torch.no_grad():
+        logits = model(input_tensor)
+        probability = float(torch.sigmoid(logits[0, 0]).item())
+
+    heatmap = compute_gradcam(model, input_tensor)
+    attention_grid = pool_grid(heatmap, ATTENTION_GRID, ATTENTION_GRID)
+    heatmap_output = build_heatmap_output(image_path, heatmap)
+    focus_regions = build_focus_regions(attention_grid)
+    contributions = build_contributions(probability, attention_grid)
+    summary = build_summary(probability, focus_regions)
     confidence = round(probability * 100.0, 2)
     anomaly_detected = confidence >= threshold_percent
-
-    contributions = []
-    for name, value, contribution in zip(
-        artifact["featureNames"], vector.tolist(), (standardized * weights).tolist()
-    ):
-        contributions.append(
-            {
-                "key": name,
-                "label": artifact["featureLabels"].get(name, name),
-                "value": round(float(value), 4),
-                "contribution": round(float(contribution), 4),
-                "direction": "supports" if contribution >= 0 else "suppresses",
-            }
-        )
-
-    ranked = sorted(contributions, key=lambda item: abs(item["contribution"]), reverse=True)
-    dominant = [item["label"] for item in ranked[:3]]
-    summary = build_summary(anomaly_detected, confidence, dominant, bundle["focus_regions"])
-    recommendation = (
-        "Flag this frame for operator review and move the event into CHECKING."
-        if anomaly_detected
-        else "Keep monitoring. If needed, capture one more angle to increase certainty."
-    )
+    dominant_signals = [item["label"] for item in contributions[:3]]
 
     labels = [
         {"name": target_label, "confidence": confidence},
@@ -463,15 +651,20 @@ def infer(payload: dict) -> dict:
         "explanation": {
             "summary": summary,
             "confidenceBand": confidence_band(probability),
-            "dominantSignals": dominant,
-            "recommendedAction": recommendation,
-            "contributions": ranked[:6],
-            "focusRegions": bundle["focus_regions"],
+            "dominantSignals": dominant_signals,
+            "recommendedAction": (
+                "Flag this frame for operator review and move the event into CHECKING."
+                if anomaly_detected
+                else "Keep monitoring. Capture another angle if you want a second deep-learning pass."
+            ),
+            "contributions": contributions,
+            "focusRegions": focus_regions,
             "attentionGrid": {
                 "rows": ATTENTION_GRID,
                 "cols": ATTENTION_GRID,
-                "values": bundle["attention_grid"],
+                "values": [round(float(value), 4) for value in attention_grid.tolist()],
             },
+            "heatmap": heatmap_output,
         },
     }
 
@@ -490,8 +683,9 @@ def main() -> None:
         sys.stdout.write(
             json.dumps(
                 {
-                    "message": "Model trained",
+                    "message": "Deep learning model trained",
                     "modelPath": str(model_path),
+                    "weightsPath": artifact["weightsFile"],
                     "classifier": artifact["classifier"],
                     "metrics": artifact["metrics"],
                     "dataset": artifact["dataset"],

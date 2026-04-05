@@ -69,10 +69,11 @@ export class PythonDetectionService {
 
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
+      const timeoutMs = command === "train" ? 600_000 : 300_000;
       const timeout = setTimeout(() => {
         child.kill();
         reject(new Error(`Python ${command} timed out`));
-      }, 45_000);
+      }, timeoutMs);
 
       child.stdout.on("data", (chunk: Buffer) => stdoutChunks.push(chunk));
       child.stderr.on("data", (chunk: Buffer) => stderrChunks.push(chunk));

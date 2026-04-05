@@ -43,6 +43,14 @@ export interface DetectionAttentionGrid {
   values: number[];
 }
 
+export interface DetectionHeatmap {
+  width: number;
+  height: number;
+  alpha: number;
+  rawDataUrl: string;
+  overlayDataUrl: string;
+}
+
 export interface DetectionModelMetrics {
   accuracy: number;
   precision: number;
@@ -77,6 +85,7 @@ export interface DetectionExplanation {
   contributions: DetectionContribution[];
   focusRegions: DetectionFocusRegion[];
   attentionGrid: DetectionAttentionGrid | null;
+  heatmap: DetectionHeatmap | null;
 }
 
 export interface DetectImageResult {

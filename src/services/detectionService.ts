@@ -95,7 +95,8 @@ function createSimpleExplanation(
       direction: label.confidence >= 50 ? "supports" : "suppresses"
     })),
     focusRegions: [],
-    attentionGrid: null
+    attentionGrid: null,
+    heatmap: null
   };
 }
 

@@ -117,9 +117,9 @@
           <div class="capability-grid">
             <article class="capability-card">
               <p class="card-kicker">PYTHON INFERENCE</p>
-              <h3>manifest から自動学習</h3>
+              <h3>MobileNetV2 を自動学習</h3>
               <p>
-                `datasets/manifests/index.json` を読み、ローカルの特徴量モデルを自動で再学習。初回推論時でもモデルアーティファクトを生成します。
+                `datasets/manifests/index.json` を読み、転移学習ベースの MobileNetV2 をローカルで再学習。初回推論時でも深層学習モデルを自動生成します。
               </p>
             </article>
 
@@ -127,7 +127,7 @@
               <p class="card-kicker">EXPLAINABILITY</p>
               <h3>注目領域と寄与度を返却</h3>
               <p>
-                予測確率だけでなく、attention grid、focus region、主要寄与シグナルを返し、なぜ検知したかを UI 側で説明できます。
+                予測確率だけでなく、Grad-CAM ベースの attention grid、focus region、主要寄与シグナルを返し、なぜ検知したかを UI 側で説明できます。
               </p>
             </article>
 
@@ -194,6 +194,23 @@
               <div id="previewStage" class="preview-stage empty">
                 <div id="previewFrame" class="preview-frame">Choose an image to preview.</div>
                 <div id="attentionGrid" class="attention-grid hidden" aria-hidden="true"></div>
+              </div>
+
+              <div class="heatmap-section">
+                <div class="mini-heading">
+                  <span>Heatmap Output</span>
+                  <small>判定に対応した可視化画像</small>
+                </div>
+                <div class="heatmap-gallery">
+                  <div class="heatmap-card">
+                    <span>Heatmap</span>
+                    <div id="heatmapRawFrame" class="heatmap-frame empty">No heatmap yet.</div>
+                  </div>
+                  <div class="heatmap-card">
+                    <span>Overlay</span>
+                    <div id="heatmapOverlayFrame" class="heatmap-frame empty">No overlay yet.</div>
+                  </div>
+                </div>
               </div>
 
               <div class="focus-section">

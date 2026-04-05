@@ -23,6 +23,8 @@ const elements = {
   previewStage: document.querySelector("#previewStage"),
   previewFrame: document.querySelector("#previewFrame"),
   attentionGrid: document.querySelector("#attentionGrid"),
+  heatmapRawFrame: document.querySelector("#heatmapRawFrame"),
+  heatmapOverlayFrame: document.querySelector("#heatmapOverlayFrame"),
   focusRegionList: document.querySelector("#focusRegionList"),
   statusBanner: document.querySelector("#statusBanner"),
   summaryText: document.querySelector("#summaryText"),
@@ -126,6 +128,37 @@ function clearAttentionGrid() {
   elements.attentionGrid.classList.add("hidden");
 }
 
+function setHeatmapFrame(target, dataUrl, alt) {
+  target.innerHTML = "";
+
+  if (!dataUrl) {
+    target.textContent = "No heatmap yet.";
+    target.classList.add("empty");
+    return;
+  }
+
+  const image = document.createElement("img");
+  image.src = dataUrl;
+  image.alt = alt;
+  target.append(image);
+  target.classList.remove("empty");
+}
+
+function clearHeatmapFrames() {
+  setHeatmapFrame(elements.heatmapRawFrame, null, "");
+  setHeatmapFrame(elements.heatmapOverlayFrame, null, "");
+}
+
+function renderHeatmap(heatmap) {
+  if (!heatmap) {
+    clearHeatmapFrames();
+    return;
+  }
+
+  setHeatmapFrame(elements.heatmapRawFrame, heatmap.rawDataUrl, "Detection heatmap");
+  setHeatmapFrame(elements.heatmapOverlayFrame, heatmap.overlayDataUrl, "Detection heatmap overlay");
+}
+
 function renderAttentionGrid(attentionGrid) {
   if (!attentionGrid?.values?.length) {
     clearAttentionGrid();
@@ -219,6 +252,7 @@ function renderDetectionResult(response) {
   renderContributions(result.explanation?.contributions ?? []);
   renderFocusRegions(result.explanation?.focusRegions ?? []);
   renderAttentionGrid(result.explanation?.attentionGrid ?? null);
+  renderHeatmap(result.explanation?.heatmap ?? null);
 }
 
 function renderHighlights(highlights = []) {
@@ -540,6 +574,7 @@ async function handleSubmit(event) {
     }
   } catch (error) {
     clearAttentionGrid();
+    clearHeatmapFrames();
     renderFocusRegions([]);
     renderContributions([]);
     renderLabelChips([]);
@@ -558,11 +593,13 @@ function bindPreview() {
       clearPreviewObjectUrl();
       elements.previewFrame.textContent = "Choose an image to preview.";
       clearAttentionGrid();
+      clearHeatmapFrames();
       return;
     }
 
     createPreviewFromFile(file);
     clearAttentionGrid();
+    clearHeatmapFrames();
   });
 }
 
@@ -657,6 +694,7 @@ async function init() {
   bindEventTable();
   bindEventDetailActions();
   bindGlobalActions();
+  clearHeatmapFrames();
 
   try {
     await refreshAll();
