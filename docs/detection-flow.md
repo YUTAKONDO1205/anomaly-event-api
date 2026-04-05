@@ -1,5 +1,7 @@
 # Detection Flow
 
+開発者: 近藤悠太 (Kondo Yuta)
+
 このドキュメントは、画像アップロードから event 保存までの流れを local / aws で追うためのメモです。
 
 ## Local Mode

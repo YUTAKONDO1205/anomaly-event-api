@@ -1,5 +1,7 @@
 # anomaly-event-api
 
+開発者: 近藤悠太 (Kondo Yuta)
+
 深層学習ベースのひび割れ検知 API と、イベント運用 UI をまとめて扱う検証スタジオです。
 
 Node.js + TypeScript の API から Python 推論パイプラインを呼び出し、`MobileNetV2 Transfer Learning` による判定結果、Grad-CAM ベースの注目領域、ヒートマップ、イベント保存までを一つの流れで扱えます。ローカルでの検証だけでなく、AWS 上で深層学習を動かす構成も用意しています。

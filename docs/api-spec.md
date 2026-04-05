@@ -1,5 +1,7 @@
 # API Spec
 
+開発者: 近藤悠太 (Kondo Yuta)
+
 ## Base URL
 
 - local: `http://127.0.0.1:3000`

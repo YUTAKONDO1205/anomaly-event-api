@@ -1,5 +1,7 @@
 # Architecture
 
+開発者: 近藤悠太 (Kondo Yuta)
+
 このドキュメントは `anomaly-event-api` の構成、責務分割、runtime mode ごとの差分を説明します。
 
 ## Goals
