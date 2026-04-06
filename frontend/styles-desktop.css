@@ -1,0 +1,64 @@
+.topbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(320px, 400px);
+}
+
+.topnav {
+  justify-content: center;
+}
+
+.top-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.hero {
+  grid-template-columns: minmax(0, 1.05fr) minmax(400px, 0.95fr);
+  min-height: calc(100vh - 180px);
+}
+
+.metric-grid,
+.event-info-grid,
+.heatmap-gallery {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.capability-grid,
+.telemetry-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.studio-grid {
+  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.08fr) minmax(320px, 0.92fr);
+  grid-template-areas: "form visual analysis";
+}
+
+.studio-form-panel {
+  grid-area: form;
+}
+
+.studio-visual-panel {
+  grid-area: visual;
+}
+
+.studio-analysis-panel {
+  grid-area: analysis;
+}
+
+.operations-grid {
+  grid-template-columns: minmax(240px, 0.34fr) minmax(0, 0.82fr) minmax(320px, 0.84fr);
+  grid-template-areas: "sidebar table detail";
+}
+
+.operations-sidebar {
+  grid-area: sidebar;
+  align-self: start;
+}
+
+.operations-table-panel {
+  grid-area: table;
+}
+
+.operations-detail-panel {
+  grid-area: detail;
+}

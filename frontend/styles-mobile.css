@@ -1,0 +1,171 @@
+.page-shell {
+  width: min(100% - 20px, 100%);
+  padding: 14px 0 56px;
+}
+
+.topbar {
+  position: static;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  padding: 18px;
+}
+
+.brand {
+  align-items: flex-start;
+}
+
+.brand-mark {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  font-size: 0.72rem;
+}
+
+.brand strong {
+  font-size: 1.18rem;
+}
+
+.brand small {
+  display: none;
+}
+
+.topnav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.topnav a {
+  font-size: 0.8rem;
+}
+
+.top-controls {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.top-actions {
+  justify-items: stretch;
+}
+
+.hero,
+.capability-grid,
+.telemetry-grid,
+.studio-grid,
+.operations-grid,
+.metric-grid,
+.event-info-grid,
+.heatmap-gallery {
+  grid-template-columns: 1fr;
+  grid-template-areas: none;
+}
+
+.studio-form-panel,
+.studio-visual-panel,
+.studio-analysis-panel,
+.operations-sidebar,
+.operations-table-panel,
+.operations-detail-panel {
+  grid-area: auto;
+}
+
+.hero-copy,
+.panel,
+.metric-card,
+.orbit-panel,
+.capability-card {
+  padding: 22px;
+  border-radius: 26px;
+}
+
+.hero-title {
+  font-size: clamp(2.6rem, 14vw, 3.8rem);
+}
+
+.hero-title-tail {
+  font-size: 0.82rem;
+}
+
+.section-heading h2 {
+  font-size: clamp(2rem, 11vw, 3rem);
+}
+
+.panel h3,
+.capability-card h3,
+.telemetry-card h3 {
+  font-size: clamp(1.4rem, 8vw, 1.9rem);
+}
+
+.hero-actions,
+.status-actions,
+.queue-actions {
+  flex-direction: column;
+}
+
+.hero-actions button,
+.hero-actions .text-link,
+.ghost-button,
+.status-actions button,
+.queue-actions button {
+  width: 100%;
+}
+
+.preview-stage,
+.preview-frame {
+  min-height: 300px;
+}
+
+.table-wrap {
+  overflow: visible;
+  border: 0;
+  background: transparent;
+}
+
+.events-table thead {
+  display: none;
+}
+
+.events-table,
+.events-table tbody,
+.events-table tr,
+.events-table td {
+  display: block;
+  width: 100%;
+}
+
+.events-table tbody {
+  display: grid;
+  gap: 12px;
+}
+
+.events-table tr {
+  padding: 16px 18px;
+  border: 1px solid rgba(27, 40, 56, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(12px);
+}
+
+.events-table td {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border: 0;
+  white-space: normal;
+}
+
+.events-table td::before {
+  content: attr(data-label);
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: 0.74rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.event-detail.empty {
+  min-height: 280px;
+}

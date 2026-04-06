@@ -1,4 +1,12 @@
+import { setupAmbientPointer, setupScrollReveal, setupSectionSpy } from "./motion.js";
+
 const allowedContentTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+const defaultHighlights = [
+  "Crack detection research workflow from inference to event logging.",
+  "Explainable AI with heatmap, focus regions, and contributions.",
+  "Compare model output, thresholds, and stored detection events."
+];
 
 const state = {
   events: [],
@@ -65,6 +73,25 @@ const elements = {
   eventDetail: document.querySelector("#eventDetail")
 };
 
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => {
+    switch (character) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return character;
+    }
+  });
+}
+
 function getConfiguredApiBaseUrl() {
   const configuredValue = window.__APP_CONFIG__?.apiBaseUrl;
   if (typeof configuredValue !== "string" || !configuredValue.trim()) {
@@ -95,9 +122,11 @@ function getApiBaseUrl() {
 function buildApiUrl(path, bustCache = false) {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const url = new URL(normalizedPath, `${getApiBaseUrl()}/`);
+
   if (bustCache) {
     url.searchParams.set("_ts", String(Date.now()));
   }
+
   return url;
 }
 
@@ -154,7 +183,7 @@ function setSyncNote(message) {
 
 function markSynced() {
   state.lastSyncedAt = Date.now();
-  setSyncNote(`Last sync ${formatSyncTime(state.lastSyncedAt)}`);
+  setSyncNote(`最終同期 ${formatSyncTime(state.lastSyncedAt)}`);
 }
 
 function resetPreview(message = "Choose an image to preview.") {
@@ -185,9 +214,11 @@ function clearPreviewObjectUrl() {
 
 function renderPreview(src, alt) {
   elements.previewFrame.innerHTML = "";
+
   const image = document.createElement("img");
   image.src = src;
   image.alt = alt;
+
   elements.previewFrame.append(image);
   elements.previewStage.classList.remove("empty");
 }
@@ -215,6 +246,7 @@ function setHeatmapFrame(target, dataUrl, alt) {
   const image = document.createElement("img");
   image.src = dataUrl;
   image.alt = alt;
+
   target.append(image);
   target.classList.remove("empty");
 }
@@ -242,13 +274,10 @@ function renderAttentionGrid(attentionGrid) {
 
   elements.attentionGrid.classList.remove("hidden");
   elements.attentionGrid.innerHTML = attentionGrid.values
-    .map(
-      (value) =>
-        `<span class="attention-cell" style="--intensity:${Math.max(
-          0,
-          Math.min(1, Number(value))
-        )}"></span>`
-    )
+    .map((value) => {
+      const normalizedValue = Math.max(0, Math.min(1, Number(value)));
+      return `<span class="attention-cell" style="--intensity:${normalizedValue}"></span>`;
+    })
     .join("");
 }
 
@@ -259,18 +288,16 @@ function renderFocusRegions(regions = []) {
   }
 
   elements.focusRegionList.innerHTML = regions
-    .map(
-      (region) => `
+    .map((region) => {
+      const label = escapeHtml(region.label);
+      return `
         <article class="focus-card">
-          <strong>${region.label}</strong>
+          <strong>${label}</strong>
           <span>Intensity ${formatPercent(Number(region.intensity) * 100, 1)}</span>
-          <p>x ${formatPercent(Number(region.x) * 100, 0)} / y ${formatPercent(
-            Number(region.y) * 100,
-            0
-          )}</p>
+          <p>x ${formatPercent(Number(region.x) * 100, 0)} / y ${formatPercent(Number(region.y) * 100, 0)}</p>
         </article>
-      `
-    )
+      `;
+    })
     .join("");
 }
 
@@ -281,14 +308,15 @@ function renderLabelChips(labels = []) {
   }
 
   elements.labelChips.innerHTML = labels
-    .map(
-      (label) => `
+    .map((label) => {
+      const name = escapeHtml(label.name);
+      return `
         <div class="label-chip">
-          <strong>${label.name}</strong>
+          <strong>${name}</strong>
           <span>${formatPercent(label.confidence, 1)}</span>
         </div>
-      `
-    )
+      `;
+    })
     .join("");
 }
 
@@ -300,15 +328,18 @@ function renderContributions(contributions = []) {
   }
 
   elements.contributionList.innerHTML = contributions
-    .map(
-      (item) => `
+    .map((item) => {
+      const label = escapeHtml(item.label);
+      const direction = item.direction === "supports" ? "Supports anomaly" : "Suppresses anomaly";
+
+      return `
         <article class="contribution-card">
-          <strong>${item.label}</strong>
-          <span>${item.direction === "supports" ? "Supports anomaly" : "Suppresses anomaly"}</span>
+          <strong>${label}</strong>
+          <span>${direction}</span>
           <p>value ${formatRatio(item.value)} / contribution ${formatRatio(item.contribution)}</p>
         </article>
-      `
-    )
+      `;
+    })
     .join("");
 }
 
@@ -320,9 +351,10 @@ function renderDetectionResult(response) {
     return;
   }
 
-  elements.summaryText.textContent = result.explanation?.summary ?? "No summary available.";
+  elements.summaryText.textContent = result.explanation?.summary ?? "要約はまだありません。";
   elements.recommendedAction.textContent =
-    result.explanation?.recommendedAction ?? "No action recommendation available.";
+    result.explanation?.recommendedAction ?? "推奨アクションはまだありません。";
+
   renderLabelChips(result.labels ?? []);
   renderContributions(result.explanation?.contributions ?? []);
   renderFocusRegions(result.explanation?.focusRegions ?? []);
@@ -331,38 +363,48 @@ function renderDetectionResult(response) {
 }
 
 function renderHighlights(highlights = []) {
-  elements.highlightsList.innerHTML = highlights
-    .map((item) => `<li>${item}</li>`)
+  const items = highlights.length ? highlights : defaultHighlights;
+
+  elements.highlightsList.innerHTML = items
+    .map((item) => `<li>${escapeHtml(item)}</li>`)
     .join("");
 }
 
 function renderDashboard(snapshot) {
   state.dashboard = snapshot;
-  const model = snapshot.model;
-  const byStatus = snapshot.events.byStatus;
-  const bySeverity = snapshot.events.bySeverity;
-  const canResetLocalDatabase = snapshot.runtime.storageMode === "local";
 
-  elements.runtimeProviderValue.textContent = snapshot.runtime.detectionProvider.toUpperCase();
-  elements.runtimeThresholdValue.textContent = `Threshold ${snapshot.runtime.threshold}% / ${snapshot.runtime.targetLabel}`;
-  elements.datasetTotalValue.textContent = String(snapshot.dataset.totalSamples);
-  elements.datasetBreakdownValue.textContent = `Positive ${snapshot.dataset.positiveSamples} / Negative ${snapshot.dataset.negativeSamples}`;
-  elements.modelAccuracyValue.textContent = model?.metrics ? formatPercent(model.metrics.accuracy * 100, 1) : "--";
-  elements.modelRecallValue.textContent = model?.metrics ? `Recall ${formatPercent(model.metrics.recall * 100, 1)}` : "Recall --";
-  elements.eventTotalValue.textContent = String(snapshot.events.total);
-  elements.eventStatusMixValue.textContent = `NEW ${byStatus.NEW} / CHECKING ${byStatus.CHECKING} / RESOLVED ${byStatus.RESOLVED}`;
-  elements.latestDetectionValue.textContent = snapshot.events.latestDetectionAt
+  const model = snapshot.model ?? null;
+  const byStatus = snapshot.events?.byStatus ?? { NEW: 0, CHECKING: 0, RESOLVED: 0 };
+  const bySeverity = snapshot.events?.bySeverity ?? { LOW: 0, MEDIUM: 0, HIGH: 0 };
+  const canResetLocalDatabase = snapshot.runtime?.storageMode === "local";
+
+  elements.runtimeProviderValue.textContent = (snapshot.runtime?.detectionProvider ?? "unknown").toUpperCase();
+  elements.runtimeThresholdValue.textContent =
+    `Threshold ${snapshot.runtime?.threshold ?? "--"}% / ${snapshot.runtime?.targetLabel ?? "--"}`;
+  elements.datasetTotalValue.textContent = String(snapshot.dataset?.totalSamples ?? 0);
+  elements.datasetBreakdownValue.textContent =
+    `Positive ${snapshot.dataset?.positiveSamples ?? 0} / Negative ${snapshot.dataset?.negativeSamples ?? 0}`;
+  elements.modelAccuracyValue.textContent = model?.metrics
+    ? formatPercent(model.metrics.accuracy * 100, 1)
+    : "--";
+  elements.modelRecallValue.textContent = model?.metrics
+    ? `Recall ${formatPercent(model.metrics.recall * 100, 1)}`
+    : "Recall --";
+  elements.eventTotalValue.textContent = String(snapshot.events?.total ?? 0);
+  elements.eventStatusMixValue.textContent =
+    `NEW ${byStatus.NEW} / CHECKING ${byStatus.CHECKING} / RESOLVED ${byStatus.RESOLVED}`;
+  elements.latestDetectionValue.textContent = snapshot.events?.latestDetectionAt
     ? formatDate(snapshot.events.latestDetectionAt)
     : "No signal yet";
   elements.averageConfidenceValue.textContent =
-    snapshot.events.total > 0
+    snapshot.events?.total > 0
       ? `Average ${formatPercent(snapshot.events.averageConfidence * 100, 1)}`
       : "Average --";
 
-  elements.datasetTelemetryTotal.textContent = String(snapshot.dataset.totalSamples);
-  elements.datasetTelemetryPositive.textContent = String(snapshot.dataset.positiveSamples);
-  elements.datasetTelemetryNegative.textContent = String(snapshot.dataset.negativeSamples);
-  elements.datasetGeneratedAt.textContent = snapshot.dataset.generatedAt
+  elements.datasetTelemetryTotal.textContent = String(snapshot.dataset?.totalSamples ?? 0);
+  elements.datasetTelemetryPositive.textContent = String(snapshot.dataset?.positiveSamples ?? 0);
+  elements.datasetTelemetryNegative.textContent = String(snapshot.dataset?.negativeSamples ?? 0);
+  elements.datasetGeneratedAt.textContent = snapshot.dataset?.generatedAt
     ? formatDate(snapshot.dataset.generatedAt)
     : "--";
 
@@ -381,9 +423,12 @@ function renderDashboard(snapshot) {
   elements.opsCheckingCount.textContent = String(byStatus.CHECKING);
   elements.opsResolvedCount.textContent = String(byStatus.RESOLVED);
   elements.opsAverageConfidence.textContent =
-    snapshot.events.total > 0 ? formatPercent(snapshot.events.averageConfidence * 100, 1) : "--";
-  elements.sidebarStatusMix.textContent = `NEW ${byStatus.NEW} / CHECKING ${byStatus.CHECKING} / RESOLVED ${byStatus.RESOLVED}`;
-  elements.sidebarSeverityMix.textContent = `LOW ${bySeverity.LOW} / MEDIUM ${bySeverity.MEDIUM} / HIGH ${bySeverity.HIGH}`;
+    snapshot.events?.total > 0 ? formatPercent(snapshot.events.averageConfidence * 100, 1) : "--";
+  elements.sidebarStatusMix.textContent =
+    `NEW ${byStatus.NEW} / CHECKING ${byStatus.CHECKING} / RESOLVED ${byStatus.RESOLVED}`;
+  elements.sidebarSeverityMix.textContent =
+    `LOW ${bySeverity.LOW} / MEDIUM ${bySeverity.MEDIUM} / HIGH ${bySeverity.HIGH}`;
+
   elements.refreshDatabase.disabled = !canResetLocalDatabase;
   elements.refreshDatabase.title = canResetLocalDatabase
     ? "Delete locally stored events and uploaded images"
@@ -413,27 +458,28 @@ function renderEvents() {
   }
 
   elements.eventsTable.innerHTML = items
-    .map(
-      (item) => `
-        <tr data-event-id="${item.eventId}" class="${
-          state.selectedEventId === item.eventId ? "is-selected" : ""
-        }">
-          <td data-label="Detected At">${formatDate(item.detectedAt)}</td>
-          <td data-label="Device">${item.deviceId}</td>
-          <td data-label="Severity">${item.severity ?? "--"}</td>
-          <td data-label="Status">${item.status}</td>
-          <td data-label="Confidence">${formatPercent(Number(item.confidence) * 100, 1)}</td>
+    .map((item) => {
+      const isSelected = state.selectedEventId === item.eventId ? "is-selected" : "";
+      return `
+        <tr data-event-id="${escapeHtml(item.eventId)}" class="${isSelected}">
+          <td data-label="Detected At">${escapeHtml(formatDate(item.detectedAt))}</td>
+          <td data-label="Device">${escapeHtml(item.deviceId)}</td>
+          <td data-label="Severity">${escapeHtml(item.severity ?? "--")}</td>
+          <td data-label="Status">${escapeHtml(item.status)}</td>
+          <td data-label="Confidence">${escapeHtml(formatPercent(Number(item.confidence) * 100, 1))}</td>
         </tr>
-      `
-    )
+      `;
+    })
     .join("");
 }
 
 function imageUrlFromKey(imageKey) {
   const url = buildApiUrl(`/uploads/${encodeURIComponent(imageKey)}`);
+
   if (state.lastSyncedAt) {
     url.searchParams.set("v", String(state.lastSyncedAt));
   }
+
   return url.toString();
 }
 
@@ -446,45 +492,46 @@ function renderEventDetail(item) {
   }
 
   elements.eventDetail.className = "event-detail";
+
   const tags = Array.isArray(item.insightTags) ? item.insightTags : [];
   const imageMarkup = item.imageKey
-    ? `<div class="event-preview"><img class="event-image" src="${imageUrlFromKey(
-        item.imageKey
-      )}" alt="${item.eventId}" /></div>`
+    ? `<div class="event-preview"><img class="event-image" src="${imageUrlFromKey(item.imageKey)}" alt="${escapeHtml(
+        item.eventId
+      )}" /></div>`
     : `<div class="event-preview"><div class="preview-frame">No stored image.</div></div>`;
 
   elements.eventDetail.innerHTML = `
     ${imageMarkup}
     <div class="event-info-grid">
-      <article class="event-meta"><span>Event ID</span><strong>${item.eventId}</strong></article>
-      <article class="event-meta"><span>Provider</span><strong>${item.detectionProvider ?? "--"}</strong></article>
-      <article class="event-meta"><span>Detected At</span><strong>${formatDate(item.detectedAt)}</strong></article>
-      <article class="event-meta"><span>Confidence</span><strong>${formatPercent(
-        Number(item.confidence) * 100,
-        1
+      <article class="event-meta"><span>Event ID</span><strong>${escapeHtml(item.eventId)}</strong></article>
+      <article class="event-meta"><span>Provider</span><strong>${escapeHtml(item.detectionProvider ?? "--")}</strong></article>
+      <article class="event-meta"><span>Detected At</span><strong>${escapeHtml(formatDate(item.detectedAt))}</strong></article>
+      <article class="event-meta"><span>Confidence</span><strong>${escapeHtml(
+        formatPercent(Number(item.confidence) * 100, 1)
       )}</strong></article>
-      <article class="event-meta"><span>Section</span><strong>${item.sectionId}</strong></article>
-      <article class="event-meta"><span>Severity</span><strong>${item.severity ?? "--"}</strong></article>
+      <article class="event-meta"><span>Section</span><strong>${escapeHtml(item.sectionId)}</strong></article>
+      <article class="event-meta"><span>Severity</span><strong>${escapeHtml(item.severity ?? "--")}</strong></article>
     </div>
 
     <article class="event-meta">
       <span>Evidence Summary</span>
-      <strong>${item.evidenceSummary ?? item.note ?? "No summary stored."}</strong>
+      <strong>${escapeHtml(item.evidenceSummary ?? item.note ?? "No summary stored.")}</strong>
     </article>
 
     <div class="tag-row">
-      ${tags.length ? tags.map((tag) => `<span class="tag-chip">${tag}</span>`).join("") : `<span class="tag-chip">No tags</span>`}
+      ${
+        tags.length
+          ? tags.map((tag) => `<span class="tag-chip">${escapeHtml(tag)}</span>`).join("")
+          : `<span class="tag-chip">No tags</span>`
+      }
     </div>
 
     <div class="status-actions">
       ${["NEW", "CHECKING", "RESOLVED"]
-        .map(
-          (status) => `
-            <button type="button" data-update-status="${status}" class="${
-              item.status === status ? "active" : ""
-            }">${status}</button>
-          `
-        )
+        .map((status) => {
+          const isActive = item.status === status ? "active" : "";
+          return `<button type="button" data-update-status="${status}" class="${isActive}">${status}</button>`;
+        })
         .join("")}
     </div>
   `;
@@ -549,6 +596,7 @@ async function fetchDashboard() {
     cache: "no-store",
     headers: { Accept: "application/json" }
   });
+
   if (!response.ok) {
     throw new Error(`Dashboard fetch failed with ${response.status}`);
   }
@@ -562,12 +610,14 @@ async function fetchEvents() {
     cache: "no-store",
     headers: { Accept: "application/json" }
   });
+
   if (!response.ok) {
     throw new Error(`Events fetch failed with ${response.status}`);
   }
 
   const json = await response.json();
   state.events = Array.isArray(json.data) ? json.data : [];
+
   renderEvents();
 
   if (state.selectedEventId) {
@@ -581,12 +631,14 @@ async function loadEventDetail(eventId) {
     cache: "no-store",
     headers: { Accept: "application/json" }
   });
+
   if (!response.ok) {
     throw new Error(`Event detail fetch failed with ${response.status}`);
   }
 
   const json = await response.json();
   state.selectedEventId = eventId;
+
   renderEvents();
   renderEventDetail(json.data);
 }
@@ -624,24 +676,25 @@ async function resetLocalDatabase() {
 
 async function handleSubmit(event) {
   event.preventDefault();
-  const file = elements.imageFile.files?.[0];
 
+  const file = elements.imageFile.files?.[0];
   if (!file) {
-    setStatus("warning", "Choose an image before running detection.");
+    setStatus("warning", "画像を選択してから検知を実行してください。");
     return;
   }
 
   if (!allowedContentTypes.has(file.type)) {
-    setStatus("warning", "Only JPEG, PNG, and WEBP images are supported.");
+    setStatus("warning", "JPEG / PNG / WEBP のみアップロードできます。");
     return;
   }
 
   const apiBaseUrl = getApiBaseUrl();
   elements.submitButton.disabled = true;
-  setStatus("loading", "Uploading image and running Python ML detection...");
+  setStatus("loading", "画像をアップロードして推論を実行しています...");
 
   try {
     const upload = await requestUploadUrl(apiBaseUrl, file.type);
+
     if (upload.uploadMode === "presigned" && upload.uploadUrl) {
       await uploadToSignedUrl(upload.uploadUrl, file);
     }
@@ -663,15 +716,12 @@ async function handleSubmit(event) {
     if (result.data?.anomalyDetected) {
       setStatus(
         "success",
-        `Anomaly detected at ${formatPercent(result.data.anomalyConfidence, 1)} via ${
+        `異常候補を検知しました。信頼度 ${formatPercent(result.data.anomalyConfidence, 1)} / ${
           result.data.provider
-        }.`
+        }`
       );
     } else {
-      setStatus(
-        "idle",
-        `No anomaly detected. Confidence ${formatPercent(result.data?.anomalyConfidence, 1)}.`
-      );
+      setStatus("idle", `異常は検知されませんでした。信頼度 ${formatPercent(result.data?.anomalyConfidence, 1)}。`);
     }
 
     await refreshDashboardAndEvents();
@@ -685,8 +735,8 @@ async function handleSubmit(event) {
     renderFocusRegions([]);
     renderContributions([]);
     renderLabelChips([]);
-    elements.summaryText.textContent = "推論に失敗しました。";
-    elements.recommendedAction.textContent = "Python 依存関係や API の状態を確認してください。";
+    elements.summaryText.textContent = "推論の実行に失敗しました。";
+    elements.recommendedAction.textContent = "Python モデルまたは API の接続状態を確認してください。";
     setStatus("warning", error instanceof Error ? error.message : "Detection failed.");
   } finally {
     elements.submitButton.disabled = false;
@@ -696,6 +746,7 @@ async function handleSubmit(event) {
 function bindPreview() {
   elements.imageFile.addEventListener("change", () => {
     const file = elements.imageFile.files?.[0];
+
     if (!file) {
       resetPreview();
       clearAttentionGrid();
@@ -717,6 +768,7 @@ function bindFilters() {
     }
 
     state.activeStatus = button.dataset.status;
+
     for (const candidate of elements.statusFilters.querySelectorAll("button")) {
       candidate.classList.toggle("active", candidate === button);
     }
@@ -748,9 +800,9 @@ function bindEventDetailActions() {
     }
 
     try {
-      setStatus("loading", `Updating status to ${button.dataset.updateStatus}...`);
+      setStatus("loading", `ステータスを ${button.dataset.updateStatus} に更新しています...`);
       await updateEventStatus(state.selectedEventId, button.dataset.updateStatus);
-      setStatus("idle", "Event status updated.");
+      setStatus("idle", "イベントのステータスを更新しました。");
     } catch (error) {
       setStatus("warning", error instanceof Error ? error.message : "Could not update status.");
     }
@@ -788,16 +840,17 @@ async function refreshDashboardAndEvents() {
 
 function bindGlobalActions() {
   elements.detectForm.addEventListener("submit", handleSubmit);
+
   elements.refreshEvents.addEventListener("click", async () => {
     try {
-      setSyncNote("Refreshing event list...");
+      setSyncNote("イベント一覧を更新しています...");
       await withBusyButton(elements.refreshEvents, "Reloading...", async () => {
         await fetchEvents();
       });
       markSynced();
-      setStatus("idle", "Events refreshed.");
+      setStatus("idle", "イベント一覧を更新しました。");
     } catch (error) {
-      setSyncNote("Event refresh failed");
+      setSyncNote("イベント更新に失敗しました");
       setStatus("warning", error instanceof Error ? error.message : "Could not refresh events.");
     }
   });
@@ -808,14 +861,14 @@ function bindGlobalActions() {
     }
 
     const confirmed = window.confirm(
-      "local-storage の events と uploads を削除します。続行しますか？"
+      "local-storage 内の events と uploads を削除します。続けますか？"
     );
     if (!confirmed) {
       return;
     }
 
     try {
-      setSyncNote("Clearing local database...");
+      setSyncNote("ローカルデータを初期化しています...");
       await withBusyButton(elements.refreshDatabase, "Clearing...", async () => {
         const result = await resetLocalDatabase();
         state.events = [];
@@ -825,44 +878,44 @@ function bindGlobalActions() {
         await refreshDashboardAndEvents();
         setStatus(
           "idle",
-          `Local storage cleared. Events ${result.data?.eventsCleared ?? 0}, uploads ${
+          `ローカルデータを初期化しました。Events ${result.data?.eventsCleared ?? 0}, uploads ${
             result.data?.uploadsCleared ?? 0
-          }.`
+          }`
         );
       });
     } catch (error) {
-      setSyncNote("Database reset failed");
+      setSyncNote("初期化に失敗しました");
       setStatus("warning", error instanceof Error ? error.message : "Could not clear local storage.");
     }
   });
 
   elements.refreshAll.addEventListener("click", async () => {
     try {
-      setSyncNote("Refreshing dashboard and events...");
+      setSyncNote("ダッシュボードとイベントを更新しています...");
       await withBusyButton(elements.refreshAll, "Refreshing...", async () => {
         await refreshDashboardAndEvents();
       });
-      setStatus("idle", "Dashboard and events refreshed.");
+      setStatus("idle", "ダッシュボードを更新しました。");
     } catch (error) {
-      setSyncNote("Refresh failed");
+      setSyncNote("更新に失敗しました");
       setStatus("warning", error instanceof Error ? error.message : "Could not refresh dashboard.");
     }
   });
 
   elements.apiBaseUrl.addEventListener("change", async () => {
     try {
-      setSyncNote("Endpoint changed. Refreshing...");
+      setSyncNote("API エンドポイントを反映しています...");
       await withBusyButton(elements.refreshAll, "Refreshing...", async () => {
         await refreshDashboardAndEvents();
       });
-      setStatus("idle", "API endpoint updated.");
+      setStatus("idle", "API エンドポイントを更新しました。");
     } catch (error) {
-      setSyncNote("Endpoint refresh failed");
+      setSyncNote("エンドポイント更新に失敗しました");
       setStatus("warning", error instanceof Error ? error.message : "Could not refresh dashboard.");
     }
   });
 
-  elements.apiBaseUrl.addEventListener("keydown", async (event) => {
+  elements.apiBaseUrl.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") {
       return;
     }
@@ -878,6 +931,9 @@ function bindGlobalActions() {
 
 async function init() {
   loadSavedApiBaseUrl();
+  setupAmbientPointer();
+  setupScrollReveal();
+  setupSectionSpy();
   bindPreview();
   bindFilters();
   bindEventTable();
@@ -885,14 +941,15 @@ async function init() {
   bindGlobalActions();
   resetPreview();
   clearHeatmapFrames();
-  setSyncNote("Syncing data...");
+  setSyncNote("データを同期しています...");
 
   try {
     await refreshDashboardAndEvents();
-    setStatus("idle", "Dashboard ready.");
+    setStatus("idle", "ダッシュボードの準備ができました。");
   } catch (error) {
-    setSyncNote("Initial sync failed");
+    setSyncNote("初期同期に失敗しました");
     setStatus("warning", error instanceof Error ? error.message : "Could not load dashboard.");
+    renderHighlights();
   }
 }
 

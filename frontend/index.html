@@ -3,18 +3,38 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1a2634" />
     <title>Crack Intelligence Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles-desktop.css" media="screen and (min-width: 1121px)" />
+    <link
+      rel="stylesheet"
+      href="./styles-tablet.css"
+      media="screen and (min-width: 768px) and (max-width: 1120px)"
+    />
+    <link rel="stylesheet" href="./styles-mobile.css" media="screen and (max-width: 767px)" />
     <script src="./app-config.js"></script>
   </head>
   <body>
+    <div class="site-ambient" aria-hidden="true">
+      <span class="ambient-orb ambient-orb-one"></span>
+      <span class="ambient-orb ambient-orb-two"></span>
+      <span class="ambient-orb ambient-orb-three"></span>
+    </div>
+
     <div class="page-shell">
       <header class="topbar">
         <a class="brand" href="#hero">
           <span class="brand-mark">CI</span>
           <span>
             <strong lang="en">Crack Intelligence</strong>
-            <small lang="en">Python ML anomaly operations</small>
+            <small lang="en">Crack detection research and operations</small>
           </span>
         </a>
 
@@ -42,12 +62,14 @@
           <div class="hero-copy">
             <p class="section-kicker">MISSION</p>
             <h1 class="hero-title">
-              生成AI時代の質感で、ひび割れ検知をプロダクトとして
-              <span class="hero-title-tail">再構築する。</span>
+              <span class="hero-title-line">異常検出を</span>
+              <span class="hero-title-line">現場運用へ</span>
+              <span class="hero-title-line">つなぐ研究を</span>
+              <span class="hero-title-tail">Explainable AI for field decisions</span>
             </h1>
             <p class="hero-lede">
-              Python ベースのローカル機械学習推論、注目領域の可視化、イベント運用を一つの体験にまとめた
-              検知スタジオです。参考サイトのように、技術の説得力とプロダクトの手触りを同時に伝える構成へ作り変えています。
+              Python ベースの推論、説明可能性解析、イベント管理を通して、ひび割れ検知の研究成果を現場運用へ接続するための検証環境です。
+              推論結果だけでなく、モデルの根拠やデータ状況も合わせて確認できます。
             </p>
 
             <div class="hero-actions">
@@ -99,7 +121,8 @@
               <span class="orbit orbit-small"></span>
               <div class="orbit-copy">
                 <p lang="en">Explainable ML</p>
-                <strong>Focus regions, contributions, confidence bands.</strong>
+                <strong>Heatmap、focus region、contribution を並べて確認。</strong>
+                <small>推論結果と注目領域を照らし合わせながら、モデルの判断根拠を検証できます。</small>
               </div>
             </div>
           </div>
@@ -108,35 +131,38 @@
         <section class="section story-grid" id="technologySection">
           <div class="section-heading">
             <p class="section-kicker">TECHNOLOGY</p>
-            <h2>実装に落とした技術レイヤー</h2>
+            <h2>推論、説明可能性、運用フローを一続きで検証。</h2>
             <p>
-              学習ノートにあった MobileNet ベースの発想を受け取りつつ、現環境で確実に回る Python
-              ローカルモデルへ再構成しました。単なる判定 API ではなく、現場が判断できる説明まで返します。
+              現場で必要なのは、異常の有無だけではなく、どの特徴が検知に効いたか、どの条件で再現できるかを追えることです。
+              このサイトでは研究用モデルの評価からイベント化までを通して確認できます。
             </p>
           </div>
 
           <div class="capability-grid">
             <article class="capability-card">
               <p class="card-kicker">PYTHON INFERENCE</p>
-              <h3>MobileNetV2 を自動学習</h3>
+              <h3>MobileNetV2 を用いたひび割れ推論</h3>
               <p>
-                `datasets/manifests/index.json` を読み、転移学習ベースの MobileNetV2 をローカルで再学習。初回推論時でも深層学習モデルを自動生成します。
+                学習済みの Python モデルを呼び出し、アップロード画像から異常候補を判定します。
+                モデル更新後の挙動やしきい値の変化も、その場で検証できます。
               </p>
             </article>
 
             <article class="capability-card">
               <p class="card-kicker">EXPLAINABILITY</p>
-              <h3>注目領域と寄与度を返却</h3>
+              <h3>判定根拠を追跡</h3>
               <p>
-                予測確率だけでなく、Grad-CAM ベースの attention grid、focus region、主要寄与シグナルを返し、なぜ検知したかを UI 側で説明できます。
+                attention grid、focus region、contribution を使って、モデルがどの領域や特徴に反応したかを確認します。
+                結果の比較や再検証に使いやすい説明情報をまとめています。
               </p>
             </article>
 
             <article class="capability-card">
               <p class="card-kicker">OPERATIONS</p>
-              <h3>イベント運用まで一体化</h3>
+              <h3>検知結果を継続管理</h3>
               <p>
-                イベント一覧、詳細表示、ステータス更新、集計ダッシュボードを同じフロントに統合し、検知の先まで触れるようにしています。
+                推論で得られた結果をイベントとして保存し、ステータス更新や詳細確認を行えます。
+                研究段階の検証結果を、そのまま運用フローへ接続できる構成です。
               </p>
             </article>
           </div>
@@ -146,7 +172,10 @@
           <div class="section-heading">
             <p class="section-kicker">LIVE DEMO</p>
             <h2 lang="en">Detection Studio</h2>
-            <p>画像をアップロードして、Python ML の推論結果と注目領域をリアルタイムで確認できます。</p>
+            <p>
+              画像を入力すると、推論結果、ヒートマップ、注目領域、説明テキストがまとめて返ります。
+              モデルの出力と根拠を同時に確認しながら、検知挙動を検証できます。
+            </p>
           </div>
 
           <div class="studio-grid">
@@ -200,7 +229,7 @@
               <div class="heatmap-section">
                 <div class="mini-heading">
                   <span>Heatmap Output</span>
-                  <small>判定に対応した可視化画像</small>
+                  <small>推論結果に応じて生成されます</small>
                 </div>
                 <div class="heatmap-gallery">
                   <div class="heatmap-card">
@@ -274,7 +303,10 @@
           <div class="section-heading">
             <p class="section-kicker">CONTROL TOWER</p>
             <h2 lang="en">Model & Dataset Telemetry</h2>
-            <p>学習状態、サンプル数、運用統計をまとめて確認し、今のローカル環境で何が走っているかを可視化します。</p>
+            <p>
+              学習データ件数、モデル指標、イベントの状態分布をまとめて確認できます。
+              研究用データセットの更新状況や、推論結果の蓄積状況を俯瞰するための区画です。
+            </p>
           </div>
 
           <div class="telemetry-grid">
@@ -317,7 +349,10 @@
           <div class="section-heading">
             <p class="section-kicker">OPERATIONS</p>
             <h2 lang="en">Event Operations Deck</h2>
-            <p>検知結果をそのままイベント運用につなげるための一覧と詳細ビューです。ステータス更新もここで完結します。</p>
+            <p>
+              保存されたイベントを一覧、詳細、ステータス更新まで追跡できます。
+              検知結果の記録、再確認、運用判断に必要な情報を継続的に管理するためのセクションです。
+            </p>
           </div>
 
           <div class="operations-grid">

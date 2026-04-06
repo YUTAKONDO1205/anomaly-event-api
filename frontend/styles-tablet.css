@@ -1,0 +1,90 @@
+.page-shell {
+  width: min(100% - 32px, 1240px);
+  padding: 18px 0 72px;
+}
+
+.topbar {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  padding: 18px 20px;
+}
+
+.topnav {
+  justify-content: flex-start;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.top-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.hero {
+  grid-template-columns: 1fr;
+  min-height: auto;
+}
+
+.metric-grid,
+.event-info-grid,
+.heatmap-gallery {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.capability-grid,
+.telemetry-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.studio-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    "form visual"
+    "analysis analysis";
+}
+
+.studio-form-panel {
+  grid-area: form;
+}
+
+.studio-visual-panel {
+  grid-area: visual;
+}
+
+.studio-analysis-panel {
+  grid-area: analysis;
+}
+
+.operations-grid {
+  grid-template-columns: minmax(240px, 0.38fr) minmax(0, 0.62fr);
+  grid-template-areas:
+    "sidebar table"
+    "detail detail";
+}
+
+.operations-sidebar {
+  grid-area: sidebar;
+}
+
+.operations-table-panel {
+  grid-area: table;
+}
+
+.operations-detail-panel {
+  grid-area: detail;
+}
+
+.preview-stage,
+.preview-frame {
+  min-height: 380px;
+}
+
+.queue-actions {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.queue-actions .ghost-button {
+  flex: 1 1 200px;
+}
