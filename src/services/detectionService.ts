@@ -10,6 +10,7 @@ import {
   DetectionModelInfo
 } from "../types/detection";
 import { env } from "../utils/env";
+import { logger } from "../utils/logger";
 import { readLocalUpload, resolveLocalUploadPath, writeLocalUpload } from "../utils/localStore";
 import { AwsDeepLearningService } from "./awsDeepLearningService";
 import { EventService } from "./eventService";
@@ -152,11 +153,28 @@ export class DetectionService {
     }
 
     if (env.detectionProvider === "aws-deep-learning" && env.storageMode === "aws") {
-      const awsResult = await this.awsDeepLearning.detect(imageBytes, {
-        imageKey: input.imageKey,
-        imageContentType: input.imageContentType
-      });
-      return this.fromPythonResult(awsResult);
+      try {
+        const awsResult = await this.awsDeepLearning.detect(imageBytes, {
+          imageKey: input.imageKey,
+          imageContentType: input.imageContentType
+        });
+        return this.fromPythonResult(awsResult);
+      } catch (error) {
+        logger.error("AWS deep-learning detection unavailable, falling back to heuristic", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+
+        const taggedFallback = this.detectFromDatasetLabel(input.note);
+        if (taggedFallback) {
+          return taggedFallback;
+        }
+
+        return this.createHeuristicFallback(
+          imageBytes,
+          "AWS deep-learning inference was unavailable, so the heuristic fallback handled this frame.",
+          "heuristic-fallback"
+        );
+      }
     }
 
     if (env.detectionProvider === "python" && env.storageMode === "local") {
@@ -169,21 +187,11 @@ export class DetectionService {
           return taggedFallback;
         }
 
-        const heuristicResult = await heuristicDetection.detect(imageBytes);
-        return {
-          ...heuristicResult,
-          provider: "heuristic-fallback",
-          model: createModelInfo("heuristic-fallback", "Heuristic Detection Fallback", false, "fallback"),
-          explanation: createSimpleExplanation(
-            heuristicResult.anomalyDetected,
-            heuristicResult.anomalyConfidence,
-            heuristicResult.labels,
-            `Python detection was unavailable, so the local heuristic fallback scored the image at ${heuristicResult.anomalyConfidence.toFixed(
-              1
-            )}%.`,
-            "heuristic fallback"
-          )
-        };
+        return this.createHeuristicFallback(
+          imageBytes,
+          "Python detection was unavailable, so the local heuristic fallback handled this frame.",
+          "heuristic-fallback"
+        );
       }
     }
 
@@ -200,6 +208,26 @@ export class DetectionService {
           ? "Handcrafted local features indicate a crack-like surface pattern."
           : "Handcrafted local features remain closer to the normal concrete texture baseline.",
         "heuristic"
+      )
+    };
+  }
+
+  private async createHeuristicFallback(
+    imageBytes: Uint8Array,
+    prefix: string,
+    provider: string
+  ): Promise<DetectionOutcome> {
+    const heuristicResult = await heuristicDetection.detect(imageBytes);
+    return {
+      ...heuristicResult,
+      provider,
+      model: createModelInfo(provider, "Heuristic Detection Fallback", false, "fallback"),
+      explanation: createSimpleExplanation(
+        heuristicResult.anomalyDetected,
+        heuristicResult.anomalyConfidence,
+        heuristicResult.labels,
+        `${prefix} It scored the image at ${heuristicResult.anomalyConfidence.toFixed(1)}%.`,
+        "heuristic fallback"
       )
     };
   }

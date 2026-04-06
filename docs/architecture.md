@@ -1,25 +1,21 @@
-# Architecture
+# アーキテクチャ
 
-開発者: 近藤悠太 (Kondo Yuta)
+このドキュメントは `anomaly-event-api` の構成、責務分離、runtime mode ごとの差分をまとめたものです。
 
-このドキュメントは `anomaly-event-api` の構成、責務分割、runtime mode ごとの差分を説明します。
+## 目的
 
-## Goals
+- ひび割れ画像を受け取り、異常検知を実行する
+- 検知結果を event として保存する
+- local と aws の両方で同じ操作感を提供する
 
-このプロジェクトの狙いは次の 3 つです。
+## 実行モード
 
-- ひび割れ画像を入力して異常検出を実行できること
-- 異常だった結果を event として保存・追跡できること
-- local と aws の両方で同じ体験を保ちながら構成を切り替えられること
-
-## Runtime Modes
-
-| Mode | Storage | Detection | Primary Use |
+| モード | 保存先 | 推論方式 | 主な用途 |
 | --- | --- | --- | --- |
-| `local` | ローカルファイル | Python MobileNetV2 + Grad-CAM | UI 開発、学習、疎通確認 |
-| `aws` | DynamoDB + S3 | Python Inference Lambda / Rekognition / Heuristic | AWS 公開、本番寄り検証 |
+| `local` | ローカルファイル | Python MobileNetV2 + Grad-CAM | 開発、学習確認 |
+| `aws` | DynamoDB + S3 | Python Inference Lambda / Rekognition / Heuristic | 公開・運用確認 |
 
-## High-Level View
+## 全体像
 
 ### Local Mode
 
@@ -50,9 +46,7 @@ Browser / Client
            -> CloudWatch Logs
 ```
 
-## Main Layers
-
-コードは大きく 4 層に分かれています。
+## レイヤ構成
 
 ### 1. Handler Layer
 
@@ -60,12 +54,12 @@ Browser / Client
 
 責務:
 
-- HTTP リクエストを受ける
-- validation を呼ぶ
-- service を呼ぶ
-- HTTP response を整形する
+- HTTP リクエスト受付
+- validation
+- service 呼び出し
+- HTTP response 整形
 
-主要 handler:
+主な handler:
 
 - `createEvent.ts`
 - `getEvents.ts`
@@ -82,13 +76,13 @@ Browser / Client
 
 責務:
 
-- 業務ロジックの実行
+- 業務ロジックの実装
 - upload URL 発行
-- deep-learning / rekognition / heuristic の切り替え
+- provider 切り替え
 - event 作成
 - local / aws 差分の吸収
 
-主要 service:
+主な service:
 
 - `DetectionService`
 - `PythonDetectionService`
@@ -114,13 +108,13 @@ Browser / Client
 
 責務:
 
-- 環境変数管理
+- 環境変数解決
 - validation
 - response 整形
 - logger
 - local storage 操作
 
-## Main Request Flows
+## 主なリクエストフロー
 
 ### Event CRUD
 
@@ -148,55 +142,48 @@ HTTP Request (/detect)
   -> HTTP Response
 ```
 
-## Detection Strategy
+## 検知戦略
 
-### Local Mode
+### local
 
-local モードでは、`python/crack_ml.py` を通して `MobileNetV2 Transfer Learning` を実行します。
+- `python/crack_ml.py` で `MobileNetV2 Transfer Learning` を実行
+- 必要ならローカルでモデル学習
+- Grad-CAM による heatmap 生成
+- `focusRegions` / `attentionGrid` / `contributions` を返却
 
-特徴:
+### aws
 
-- 初回推論時に model が無ければ自動学習
-- Grad-CAM による heatmap を生成
-- focus regions / attention grid / contributions を返す
+`DetectionService` が `DetectionProvider` を見て provider を切り替えます。
 
-向いている用途:
+- `aws-deep-learning`: Python コンテナ Lambda を invoke
+- `rekognition`: Rekognition Custom Labels
+- `heuristic`: 軽量な特徴量ベース判定
 
-- UI 確認
-- API 疎通
-- 学習 / 推論の検証
+補足:
 
-### AWS Mode
+- `aws-deep-learning` がコールドスタートやタイムアウトで間に合わない場合、API 側で `heuristic-fallback` に切り替える実装です
 
-aws モードでは、S3 に保存された画像を `DetectionService` が読み込み、`DetectionProvider` に応じて provider を切り替えます。
-
-- `aws-deep-learning`: Python コンテナ Lambda で MobileNetV2 + Grad-CAM を実行
-- `rekognition`: Rekognition Custom Labels を利用
-- `heuristic`: 画像特徴量ベースのフォールバック
-
-深層学習 path では、ローカルで学習した model 重みを `aws/deep-learning-artifacts/model` にコピーして Lambda image に同梱します。
-
-## Storage Design
+## 保存設計
 
 ### Local Storage
 
-| Path | Purpose |
+| パス | 用途 |
 | --- | --- |
-| `local-storage/uploads` | 受信画像の保存先 |
-| `local-storage/events/events.json` | event 保存先 |
+| `local-storage/uploads` | アップロード画像保存 |
+| `local-storage/events/events.json` | event 保存 |
 | `local-storage/ml` | 学習済みモデルと metadata |
 
 ### AWS Storage
 
-| Resource | Purpose |
+| リソース | 用途 |
 | --- | --- |
 | DynamoDB `EventsTable` | event 保存 |
-| S3 `EventImagesBucket` | アップロード画像 |
-| S3 `FrontendBucket` | frontend 公開 |
+| S3 `EventImagesBucket` | アップロード画像保存 |
+| S3 `FrontendBucket` | フロントエンド公開 |
 
-## Deployment View
+## デプロイ構成
 
-`template.yaml` で次を定義しています。
+`template.yaml` で以下を構成します。
 
 - HttpApi
 - Node.js Lambda Functions
@@ -205,7 +192,7 @@ aws モードでは、S3 に保存された画像を `DetectionService` が読�
 - S3 Upload Bucket
 - S3 Frontend Website Bucket
 
-主要 function:
+主な function:
 
 - `CreateEventFunction`
 - `GetEventsFunction`
@@ -217,62 +204,20 @@ aws モードでは、S3 に保存された画像を `DetectionService` が読�
 - `GetUploadedImageFunction`
 - `DeepLearningInferenceFunction`
 
-## Frontend Integration
+## 運用メモ
 
-frontend は静的 HTML / CSS / JavaScript です。
-
-役割:
-
-- upload-url の取得
-- local / aws で upload 手順を切り替え
-- detect 実行
-- heatmap / attention / event detail の表示
-- refresh / sync / local reset の操作
-
-AWS 公開時は `app-config.js` で API Base URL を注入します。
-
-## Operational Notes
-
-### Observability
+### ログ
 
 - Lambda エラーは `logger.error` で出力
-- AWS モードでは CloudWatch Logs で追跡
-- local モードではターミナルログで追跡
+- AWS では CloudWatch Logs で確認
 
-### Validation
+### 検証
 
-validation は `src/utils/validate.ts` に集約されています。
+- validation は `src/utils/validate.ts` に集約
+- event 作成、detect 入力、upload content type、status 更新値を検証
 
-主な対象:
+### トレードオフ
 
-- event 作成入力
-- detect 入力
-- upload content type
-- status 更新値
-
-### Sorting and Filtering
-
-- `GET /events` は `detectedAt` 降順
-- `status` と `deviceId` で絞り込み可能
-
-## Trade-Offs
-
-### この設計の強み
-
-- local と aws の両方をほぼ同じ API 体験で扱える
-- deep-learning path と fallback path を同居できる
-- handler / service / repository の責務が分かれていて拡張しやすい
-- UI から検出、保存、運用までの距離が短い
-
-### 今後伸ばしやすい点
-
-- 認証 / 権限制御
-- CloudFront による HTTPS frontend 配信
-- model versioning / model registry
-- 非同期推論キュー
-- event pagination / search
-
-## Related Documents
-
-- [API Spec](./api-spec.md)
-- [Detection Flow](./detection-flow.md)
+- local と aws を同じ API で扱うため、provider 切り替えの分岐が増える
+- deep-learning path と fallback path を同時に保守する必要がある
+- S3 Website は HTTP のみなので、HTTPS が必要なら CloudFront を追加する

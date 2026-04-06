@@ -1,6 +1,4 @@
-# API Spec
-
-開発者: 近藤悠太 (Kondo Yuta)
+# API仕様
 
 ## Base URL
 
@@ -8,9 +6,9 @@
 - aws api: `https://{api-id}.execute-api.{region}.amazonaws.com`
 - aws frontend: `http://{frontend-bucket}.s3-website-{region}.amazonaws.com`
 
-## Common Response Shape
+## 共通レスポンス形式
 
-成功レスポンスは基本的に次の形です。
+正常時:
 
 ```json
 {
@@ -19,7 +17,7 @@
 }
 ```
 
-エラー時は通常 `data` を含まず、`message` に理由が入ります。
+エラー時:
 
 ```json
 {
@@ -27,45 +25,43 @@
 }
 ```
 
-## Runtime Notes
+## 実行モードごとの違い
 
 ### local
 
-- 画像は `local-storage/uploads` に保存されます
-- event は `local-storage/events/events.json` に保存されます
-- `POST /detect` は Python の `crack_ml.py` を使って推論します
-- `POST /admin/reset-local-database` は local dev server 専用です
+- 画像は `local-storage/uploads` に保存
+- event は `local-storage/events/events.json` に保存
+- `POST /detect` は Python の `crack_ml.py` を使って推論
+- `POST /admin/reset-local-database` が利用可能
 
 ### aws
 
-- 画像は S3 に保存されます
-- event は DynamoDB に保存されます
-- `POST /detect` は `DetectionProvider` に応じて provider を切り替えます
+- 画像は S3 に保存
+- event は DynamoDB に保存
+- `POST /detect` は `DetectionProvider` に応じて provider を選択
   - `aws-deep-learning`
   - `rekognition`
   - `heuristic`
 
-## Endpoints Summary
+## エンドポイント一覧
 
-| Method | Path | Purpose |
+| Method | Path | 用途 |
 | --- | --- | --- |
-| `GET` | `/dashboard` | runtime / dataset / model / events の集約 |
-| `GET` | `/events` | event 一覧取得 |
+| `GET` | `/dashboard` | runtime / dataset / model / events の一覧 |
+| `GET` | `/events` | event 一覧 |
 | `POST` | `/events` | event 手動作成 |
-| `GET` | `/events/{id}` | event 詳細取得 |
+| `GET` | `/events/{id}` | event 詳細 |
 | `PATCH` | `/events/{id}/status` | event status 更新 |
-| `GET` | `/uploads/{imageKey}` | 保存画像取得 |
-| `POST` | `/upload-url` | アップロード先生成 |
-| `POST` | `/detect` | 画像判定実行 |
+| `GET` | `/uploads/{imageKey}` | 保存済み画像の取得 |
+| `POST` | `/upload-url` | アップロード先取得 |
+| `POST` | `/detect` | 推論実行 |
 | `POST` | `/admin/reset-local-database` | local storage 初期化 |
 
-`/admin/reset-local-database` は local dev server 専用です。SAM / AWS には出ません。
+`/admin/reset-local-database` は local 開発専用です。AWS には公開しません。
 
 ## `GET /dashboard`
 
-runtime、dataset、model、events の snapshot を返します。
-
-主なフィールド:
+主な返却項目:
 
 - `runtime.storageMode`
 - `runtime.detectionProvider`
@@ -83,16 +79,16 @@ runtime、dataset、model、events の snapshot を返します。
 
 event 一覧を返します。
 
-Optional query:
+利用可能な query:
 
 - `status=NEW|CHECKING|RESOLVED`
 - `deviceId=...`
 
-レスポンスは `detectedAt` 降順です。
+レスポンスは `detectedAt` の降順です。
 
 ## `POST /events`
 
-event を手動作成します。
+手動で event を登録します。
 
 ```json
 {
@@ -113,9 +109,7 @@ event を手動作成します。
 
 ## `GET /events/{id}`
 
-単一の event を返します。
-
-- 存在しない場合は `404`
+単一 event を返します。見つからない場合は `404` です。
 
 ## `PATCH /events/{id}/status`
 
@@ -125,7 +119,7 @@ event を手動作成します。
 }
 ```
 
-許可される status:
+設定可能な status:
 
 - `NEW`
 - `CHECKING`
@@ -133,7 +127,7 @@ event を手動作成します。
 
 ## `GET /uploads/{imageKey}`
 
-保存画像を返します。
+保存済み画像を返します。
 
 ### local
 
@@ -141,11 +135,11 @@ event を手動作成します。
 
 ### aws
 
-- 短命な S3 signed URL へリダイレクトします
+- S3 の signed URL へリダイレクトします
 
 ## `POST /upload-url`
 
-アップロード先を生成します。
+画像アップロード先を返します。
 
 request:
 
@@ -155,7 +149,7 @@ request:
 }
 ```
 
-response の主なフィールド:
+主な response 項目:
 
 - `key`
 - `bucket`
@@ -167,14 +161,12 @@ response の主なフィールド:
 ### local の挙動
 
 - `uploadMode` は `inline`
-- `uploadUrl` は local dev server の `/uploads/...`
-- 実際の画像 bytes は `POST /detect` の `imageDataBase64` に含めます
+- 画像本体は `POST /detect` の `imageDataBase64` に含めます
 
 ### aws の挙動
 
 - `uploadMode` は `presigned`
-- `uploadUrl` は S3 PUT 用の presigned URL
-- frontend はまずこの URL に PUT し、その後 `POST /detect` を叩きます
+- `uploadUrl` は S3 PUT 用 presigned URL です
 
 ## `POST /detect`
 
@@ -198,92 +190,24 @@ request:
 - local + `python`: ローカル Python 推論
 - aws + `aws-deep-learning`: Python deep-learning Lambda を invoke
 - aws + `rekognition`: Rekognition Custom Labels
-- aws + `heuristic`: 画像特徴量ベースのフォールバック
+- aws + `heuristic`: 画像特徴ベースの軽量判定
 
-### deep-learning response example
+### 補足
 
-```json
-{
-  "message": "Anomaly detected and event created",
-  "data": {
-    "imageKey": "images/sample.jpg",
-    "anomalyDetected": true,
-    "anomalyConfidence": 97.2,
-    "threshold": 55,
-    "targetLabel": "Positive",
-    "topLabel": {
-      "name": "Positive",
-      "confidence": 97.2
-    },
-    "provider": "aws-deep-learning",
-    "processingMs": 420,
-    "model": {
-      "provider": "aws-deep-learning",
-      "classifier": "MobileNetV2 Transfer Learning",
-      "version": "deep-mobilenetv2-v1",
-      "trainedAt": "2026-04-05T00:00:00.000Z",
-      "ready": true,
-      "metrics": {
-        "accuracy": 0.98,
-        "precision": 0.98,
-        "recall": 0.98,
-        "f1": 0.98,
-        "auc": 0.99,
-        "recommendedThreshold": 0.42
-      }
-    },
-    "explanation": {
-      "summary": "Deep model activated around...",
-      "confidenceBand": "HIGH",
-      "dominantSignals": [
-        "Crack probability",
-        "Activation block 1-1"
-      ],
-      "recommendedAction": "Flag this frame for operator review...",
-      "contributions": [],
-      "focusRegions": [],
-      "attentionGrid": {
-        "rows": 6,
-        "cols": 6,
-        "values": []
-      },
-      "heatmap": {
-        "width": 160,
-        "height": 160,
-        "alpha": 0.42,
-        "rawDataUrl": "data:image/png;base64,...",
-        "overlayDataUrl": "data:image/png;base64,..."
-      }
-    },
-    "event": {
-      "eventId": "generated-uuid",
-      "severity": "HIGH",
-      "detectionProvider": "aws-deep-learning"
-    }
-  }
-}
-```
-
-ヒートマップ関連:
-
-- `explanation.heatmap.rawDataUrl`: ヒートマップ単体画像
-- `explanation.heatmap.overlayDataUrl`: 元画像に重ねたオーバーレイ画像
+- `aws-deep-learning` が応答できない場合は `heuristic-fallback` に切り替わることがあります
+- anomaly と判定された場合は event を作成します
 
 ## `POST /admin/reset-local-database`
 
-local dev server 専用です。
-
-ローカル保存の次を削除します。
+local 開発専用です。以下を初期化します。
 
 - `local-storage/events/events.json`
 - `local-storage/uploads`
 
-学習済みモデルは削除しません。
-
-## Typical Status Codes
+## 代表的なステータスコード
 
 - `200`: 正常取得 / 正常更新
 - `201`: event 作成成功
 - `400`: validation error
-- `404`: event or image not found
-- `500`: unexpected server error
+- `404`: not found
+- `500`: server error

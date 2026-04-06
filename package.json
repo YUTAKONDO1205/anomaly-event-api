@@ -16,7 +16,8 @@
     "sam:build": "npm run build && npm run aws:prepare-deep-learning && sam build",
     "sam:build:deep": "npm run sam:build",
     "sam:local": "npm run build && npm run aws:prepare-deep-learning && sam local start-api",
-    "sam:deploy": "npm run sam:build && sam deploy --guided",
+    "sam:deploy": "npm run sam:build && sam deploy",
+    "sam:deploy:guided": "npm run sam:build && sam deploy --guided",
     "sam:deploy:deep": "npm run sam:deploy",
     "sam:publish-web": "node scripts/publish-frontend-aws.mjs --stack-name anomaly-event-api",
     "test": "npm run build && node --test"

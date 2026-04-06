@@ -56,7 +56,11 @@ export class AwsDeepLearningService {
         FunctionName: env.awsDeepLearningFunctionName,
         InvocationType: "RequestResponse",
         Payload: Buffer.from(JSON.stringify(payload), "utf8")
-      })
+      }),
+      {
+        // Keep the public /detect API responsive even when the Python container is cold-starting.
+        abortSignal: AbortSignal.timeout(8000)
+      }
     );
 
     const responseText = response.Payload ? Buffer.from(response.Payload).toString("utf8").trim() : "";

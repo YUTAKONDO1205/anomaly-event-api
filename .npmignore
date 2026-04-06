@@ -10,3 +10,17 @@ tests/
 README.md
 template.yaml
 tsconfig.json
+datasets/
+frontend/
+local-storage/
+python/
+scripts/
+aws/deep-learning-artifacts/model/*.pt
+aws/deep-learning-lambda/
+crack_classifier_mobilenetv2.tflite
+dataset.config.example.json
+dataset.config.json
+mdoel_create.py
+requirements.txt
+samconfig.toml
+uav_model.py
