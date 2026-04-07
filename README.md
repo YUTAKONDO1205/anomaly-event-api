@@ -1,6 +1,6 @@
 # anomaly-event-api
 
-近藤 雄太さん向けの、ひび割れ検知イベント管理 API / UI サンプルです。
+開発者: 近藤悠太 (Kondo Yuta)
 
 Node.js + TypeScript で API を実装し、Python + PyTorch の `MobileNetV2 Transfer Learning` と Grad-CAM を使って画像推論を行います。ローカル実行と AWS 実行の両方に対応しています。
 
