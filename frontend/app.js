@@ -168,6 +168,15 @@ function formatRatio(value) {
   return Number(value).toFixed(3);
 }
 
+function getDecisionLabel(result) {
+  return result?.topLabel?.name ?? result?.labels?.[0]?.name ?? result?.targetLabel ?? "--";
+}
+
+function getDecisionConfidence(result) {
+  const value = result?.topLabel?.confidence ?? result?.labels?.[0]?.confidence ?? result?.anomalyConfidence;
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
+}
+
 function setStatus(kind, message) {
   elements.statusBanner.className = `status-banner ${kind}`;
   elements.statusBanner.textContent = message;
@@ -713,15 +722,21 @@ async function handleSubmit(event) {
     const result = await runDetection(apiBaseUrl, detectPayload);
     renderDetectionResult(result);
 
+    const decisionLabel = getDecisionLabel(result.data);
+    const decisionConfidence = getDecisionConfidence(result.data);
+
     if (result.data?.anomalyDetected) {
       setStatus(
         "success",
-        `異常候補を検知しました。信頼度 ${formatPercent(result.data.anomalyConfidence, 1)} / ${
+        `異常候補を検知しました。判定 ${decisionLabel} / 信頼度 ${formatPercent(decisionConfidence, 1)} / ${
           result.data.provider
         }`
       );
     } else {
-      setStatus("idle", `異常は検知されませんでした。信頼度 ${formatPercent(result.data?.anomalyConfidence, 1)}。`);
+      setStatus(
+        "idle",
+        `異常は検知されませんでした。判定 ${decisionLabel} / 信頼度 ${formatPercent(decisionConfidence, 1)}。`
+      );
     }
 
     await refreshDashboardAndEvents();

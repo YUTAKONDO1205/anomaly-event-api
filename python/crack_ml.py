@@ -592,14 +592,23 @@ def build_contributions(probability: float, attention_grid: np.ndarray) -> list[
     return contributions[:6]
 
 
-def build_summary(probability: float, regions: list[dict]) -> str:
+def build_summary(
+    probability: float,
+    regions: list[dict],
+    target_label: str = "Positive",
+    negative_label: str = "Negative",
+) -> str:
     confidence = probability * 100.0
+    negative_confidence = (1.0 - probability) * 100.0
     hotspot_count = len([region for region in regions if region["intensity"] >= 0.35]) or 1
     if probability >= 0.5:
         return (
-            f"Deep model activated around {hotspot_count} region(s), and the crack probability reached {confidence:.1f}%."
+            f"Deep model activated around {hotspot_count} region(s), and the {target_label} probability reached {confidence:.1f}%."
         )
-    return f"Deep model kept the frame close to the normal texture manifold at {confidence:.1f}% crack probability."
+    return (
+        "Deep model kept the frame close to the normal texture manifold, "
+        f"with {negative_label} confidence at {negative_confidence:.1f}%."
+    )
 
 
 def infer(payload: dict) -> dict:
@@ -623,7 +632,7 @@ def infer(payload: dict) -> dict:
     heatmap_output = build_heatmap_output(image_path, heatmap)
     focus_regions = build_focus_regions(attention_grid)
     contributions = build_contributions(probability, attention_grid)
-    summary = build_summary(probability, focus_regions)
+    summary = build_summary(probability, focus_regions, target_label=target_label)
     confidence = round(probability * 100.0, 2)
     anomaly_detected = confidence >= threshold_percent
     dominant_signals = [item["label"] for item in contributions[:3]]

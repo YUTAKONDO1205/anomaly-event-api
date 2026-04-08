@@ -73,7 +73,7 @@ def infer_image(image_bytes: bytes, target_label: str, threshold_percent: float)
         heatmap_output = build_heatmap_output(image_path, heatmap)
         focus_regions = build_focus_regions(attention_grid)
         contributions = build_contributions(probability, attention_grid)
-        summary = build_summary(probability, focus_regions)
+        summary = build_summary(probability, focus_regions, target_label=target_label)
         confidence = round(probability * 100.0, 2)
         anomaly_detected = confidence >= threshold_percent
         dominant_signals = [item["label"] for item in contributions[:3]]

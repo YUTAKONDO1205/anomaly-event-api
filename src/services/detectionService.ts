@@ -34,6 +34,21 @@ function sortByConfidence(labels: DetectionLabel[]) {
   return [...labels].sort((left, right) => right.confidence - left.confidence);
 }
 
+function getTopLabel(labels: DetectionLabel[]) {
+  return sortByConfidence(labels)[0] ?? null;
+}
+
+function getDecisionConfidence(labels: DetectionLabel[], fallbackConfidence: number) {
+  return getTopLabel(labels)?.confidence ?? fallbackConfidence;
+}
+
+function describeDecisionScore(labels: DetectionLabel[], fallbackConfidence: number) {
+  const topLabel = getTopLabel(labels);
+  const decisionLabel = topLabel?.name ?? env.detectionTargetLabel;
+  const decisionConfidence = getDecisionConfidence(labels, fallbackConfidence);
+  return `It scored the image at ${decisionConfidence.toFixed(1)}% for ${decisionLabel}.`;
+}
+
 function getConfidenceBand(confidence: number): DetectionConfidenceBand {
   if (confidence >= 85 || confidence <= 15) {
     return "HIGH";
@@ -226,7 +241,7 @@ export class DetectionService {
         heuristicResult.anomalyDetected,
         heuristicResult.anomalyConfidence,
         heuristicResult.labels,
-        `${prefix} It scored the image at ${heuristicResult.anomalyConfidence.toFixed(1)}%.`,
+        `${prefix} ${describeDecisionScore(heuristicResult.labels, heuristicResult.anomalyConfidence)}`,
         "heuristic fallback"
       )
     };
@@ -296,10 +311,10 @@ export class DetectionService {
     }
 
     const isPositive = match[1].toLowerCase() === "positive";
-    const labels = [
+    const labels = sortByConfidence([
       { name: env.detectionTargetLabel, confidence: isPositive ? 100 : 0 },
       { name: "Negative", confidence: isPositive ? 0 : 100 }
-    ];
+    ]);
 
     return {
       anomalyDetected: isPositive,
