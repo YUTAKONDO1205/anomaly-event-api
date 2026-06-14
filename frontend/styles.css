@@ -194,6 +194,10 @@ button:disabled {
   position: sticky;
   top: 16px;
   z-index: 40;
+  /* Base layout so the topbar never collapses to block flow if no responsive
+     stylesheet matches (e.g. a fractional viewport width between breakpoints). */
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(320px, 400px);
   gap: 18px;
   align-items: center;
   padding: 20px 24px;
@@ -302,6 +306,8 @@ button:disabled {
 }
 
 .top-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 14px;
   align-items: end;
 }

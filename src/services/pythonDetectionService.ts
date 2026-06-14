@@ -25,13 +25,19 @@ function isPythonDetectionResponse(value: unknown): value is PythonDetectionResp
   }
 
   const candidate = value as Partial<PythonDetectionResponse>;
+  const model = candidate.model as Partial<DetectionModelInfo> | undefined;
+  const explanation = candidate.explanation as Partial<DetectionExplanation> | undefined;
   return (
     typeof candidate.anomalyDetected === "boolean" &&
     typeof candidate.anomalyConfidence === "number" &&
     Array.isArray(candidate.labels) &&
     typeof candidate.provider === "string" &&
-    !!candidate.model &&
-    !!candidate.explanation
+    !!model &&
+    typeof model.classifier === "string" &&
+    typeof model.version === "string" &&
+    !!explanation &&
+    typeof explanation.summary === "string" &&
+    Array.isArray(explanation.dominantSignals)
   );
 }
 

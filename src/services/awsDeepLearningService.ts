@@ -1,6 +1,7 @@
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { DetectionExplanation, DetectionLabel, DetectionModelInfo } from "../types/detection";
 import { env } from "../utils/env";
+import { DeepLearningPermanentError } from "../utils/errors";
 
 interface AwsDeepLearningRequest {
   imageBase64: string;
@@ -27,20 +28,28 @@ function isAwsDeepLearningResponse(value: unknown): value is AwsDeepLearningResp
   }
 
   const candidate = value as Partial<AwsDeepLearningResponse>;
+  const model = candidate.model as Partial<DetectionModelInfo> | undefined;
+  const explanation = candidate.explanation as Partial<DetectionExplanation> | undefined;
   return (
     typeof candidate.anomalyDetected === "boolean" &&
     typeof candidate.anomalyConfidence === "number" &&
     Array.isArray(candidate.labels) &&
     typeof candidate.provider === "string" &&
-    !!candidate.model &&
-    !!candidate.explanation
+    !!model &&
+    typeof model.classifier === "string" &&
+    typeof model.version === "string" &&
+    !!explanation &&
+    typeof explanation.summary === "string" &&
+    Array.isArray(explanation.dominantSignals)
   );
 }
 
 export class AwsDeepLearningService {
   async detect(imageBytes: Uint8Array, options?: { imageKey?: string; imageContentType?: string }) {
     if (!env.awsDeepLearningFunctionName) {
-      throw new Error("Missing environment variable: AWS_DEEP_LEARNING_FUNCTION_NAME");
+      throw new DeepLearningPermanentError(
+        "Missing environment variable: AWS_DEEP_LEARNING_FUNCTION_NAME"
+      );
     }
 
     const payload: AwsDeepLearningRequest = {
@@ -58,8 +67,12 @@ export class AwsDeepLearningService {
         Payload: Buffer.from(JSON.stringify(payload), "utf8")
       }),
       {
-        // Keep the public /detect API responsive even when the Python container is cold-starting.
-        abortSignal: AbortSignal.timeout(8000)
+        // Allow a real (possibly cold-starting) PyTorch container inference to
+        // complete: an 8s cap was shorter than a typical cold start, so the DL
+        // model effectively never ran on cold invokes. Stay under the caller
+        // Lambda's 30s timeout (template.yaml DetectImageFunction) to keep
+        // headroom for the heuristic fallback.
+        abortSignal: AbortSignal.timeout(25000)
       }
     );
 
@@ -76,13 +89,13 @@ export class AwsDeepLearningService {
     try {
       parsed = JSON.parse(responseText);
     } catch (error) {
-      throw new Error(
+      throw new DeepLearningPermanentError(
         `AWS deep learning returned invalid JSON: ${error instanceof Error ? error.message : "parse error"}`
       );
     }
 
     if (!isAwsDeepLearningResponse(parsed)) {
-      throw new Error("AWS deep learning returned an unexpected response shape");
+      throw new DeepLearningPermanentError("AWS deep learning returned an unexpected response shape");
     }
 
     return parsed;

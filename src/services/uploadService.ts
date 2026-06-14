@@ -3,6 +3,7 @@ import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { UploadContentType } from "../types/event";
 import { env } from "../utils/env";
+import { RequestValidationError } from "../utils/errors";
 
 const s3 = new S3Client({ region: env.region });
 const extensionByContentType: Record<UploadContentType, string> = {
@@ -12,7 +13,11 @@ const extensionByContentType: Record<UploadContentType, string> = {
 };
 
 export function buildImageObjectKey(contentType: UploadContentType): string {
-  return `images/${randomUUID()}.${extensionByContentType[contentType]}`;
+  const extension = extensionByContentType[contentType];
+  if (!extension) {
+    throw new RequestValidationError(`Unsupported content type: ${contentType}`);
+  }
+  return `images/${randomUUID()}.${extension}`;
 }
 
 export class UploadService {

@@ -3,6 +3,7 @@ import path from "node:path";
 import jpeg from "jpeg-js";
 import { PNG } from "pngjs";
 import { env } from "../utils/env";
+import { logger } from "../utils/logger";
 
 interface DecodedImage {
   width: number;
@@ -206,7 +207,15 @@ export class HeuristicDetectionService {
   private readonly modelPromise: Promise<TrainedModel | null>;
 
   constructor() {
-    this.modelPromise = this.trainModel();
+    // Never leave the training promise unhandled: a rejection here would become
+    // an unhandledRejection until the first detect() awaits it. Degrade to the
+    // formula fallback (null model) instead.
+    this.modelPromise = this.trainModel().catch((error) => {
+      logger.error("Heuristic model training failed; using formula fallback", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return null;
+    });
   }
 
   async detect(bytes: Uint8Array) {
@@ -258,13 +267,29 @@ export class HeuristicDetectionService {
     }
 
     const [positiveVectors, negativeVectors] = await Promise.all([
-      Promise.all(positiveEntries.map((entry) => fs.readFile(entry.filePath).then(extractFeatures))),
-      Promise.all(negativeEntries.map((entry) => fs.readFile(entry.filePath).then(extractFeatures)))
+      this.extractVectors(positiveEntries),
+      this.extractVectors(negativeEntries)
     ]);
+
+    // If every sample of a class was undecodable/unreadable, fall back to the
+    // formula model rather than averaging an empty array (which yields NaN).
+    if (positiveVectors.length === 0 || negativeVectors.length === 0) {
+      return null;
+    }
 
     return {
       positiveCentroid: averageVectors(positiveVectors),
       negativeCentroid: averageVectors(negativeVectors)
     };
+  }
+
+  private async extractVectors(entries: DatasetManifestEntry[]): Promise<FeatureVector[]> {
+    const settled = await Promise.allSettled(
+      entries.map((entry) => fs.readFile(entry.filePath).then(extractFeatures))
+    );
+
+    return settled
+      .filter((result): result is PromiseFulfilledResult<FeatureVector> => result.status === "fulfilled")
+      .map((result) => result.value);
   }
 }

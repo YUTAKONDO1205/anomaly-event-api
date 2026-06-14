@@ -12,7 +12,7 @@ export const handler = async (
 ): Promise<APIGatewayProxyStructuredResultV2> => {
   try {
     const rawFilters = {
-      status: event.queryStringParameters?.status,
+      status: event.queryStringParameters?.status?.trim() || undefined,
       deviceId: event.queryStringParameters?.deviceId?.trim() || undefined
     };
     const errors = validateListEventsQuery(rawFilters);

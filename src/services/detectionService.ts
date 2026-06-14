@@ -10,6 +10,7 @@ import {
   DetectionModelInfo
 } from "../types/detection";
 import { env } from "../utils/env";
+import { DeepLearningPermanentError, RequestValidationError } from "../utils/errors";
 import { logger } from "../utils/logger";
 import { readLocalUpload, resolveLocalUploadPath, writeLocalUpload } from "../utils/localStore";
 import { AwsDeepLearningService } from "./awsDeepLearningService";
@@ -129,6 +130,18 @@ export class DetectionService {
     const imageBytes = await this.loadImageBytes(input);
     const detection = await this.detectLabels(input, imageBytes);
 
+    // When an anomaly is detected, report the target label (the basis of
+    // anomalyConfidence/severity) as the top label so it can never contradict the
+    // decision — e.g. Rekognition returns independent confidences where a
+    // non-target label may outscore the target while the target still clears the
+    // threshold. For a non-anomaly response the highest-confidence label is fine.
+    const targetMatch = detection.labels.find(
+      (label) => label.name.toLowerCase() === env.detectionTargetLabel.toLowerCase()
+    );
+    const decisionLabel = detection.anomalyDetected
+      ? targetMatch ?? detection.labels[0] ?? null
+      : detection.labels[0] ?? null;
+
     const event = detection.anomalyDetected
       ? await this.eventService.createEvent({
           deviceId: input.deviceId,
@@ -138,7 +151,7 @@ export class DetectionService {
           confidence: detection.anomalyConfidence / 100,
           severity: getEventSeverity(detection.anomalyConfidence),
           detectionProvider: detection.provider,
-          topLabel: detection.labels[0]?.name,
+          topLabel: decisionLabel?.name,
           evidenceSummary: detection.explanation.summary,
           insightTags: detection.explanation.dominantSignals,
           imageKey: input.imageKey,
@@ -152,7 +165,7 @@ export class DetectionService {
       anomalyConfidence: detection.anomalyConfidence,
       threshold: env.detectionMinConfidence,
       targetLabel: env.detectionTargetLabel,
-      topLabel: detection.labels[0] ?? null,
+      topLabel: decisionLabel,
       labels: detection.labels,
       provider: detection.provider,
       processingMs: Date.now() - startedAt,
@@ -175,6 +188,12 @@ export class DetectionService {
         });
         return this.fromPythonResult(awsResult);
       } catch (error) {
+        // A permanent misconfiguration / broken contract must not be masked as a
+        // successful heuristic detection — surface it so it can be fixed.
+        if (error instanceof DeepLearningPermanentError) {
+          throw error;
+        }
+
         logger.error("AWS deep-learning detection unavailable, falling back to heuristic", {
           error: error instanceof Error ? error.message : String(error)
         });
@@ -196,7 +215,12 @@ export class DetectionService {
       try {
         const pythonResult = await this.pythonDetection.detect(resolveLocalUploadPath(input.imageKey));
         return this.fromPythonResult(pythonResult);
-      } catch (_error) {
+      } catch (error) {
+        logger.error("Python detection unavailable, falling back to heuristic", {
+          error: error instanceof Error ? error.message : String(error),
+          imageKey: input.imageKey
+        });
+
         const taggedFallback = this.detectFromDatasetLabel(input.note);
         if (taggedFallback) {
           return taggedFallback;
@@ -208,6 +232,16 @@ export class DetectionService {
           "heuristic-fallback"
         );
       }
+    }
+
+    // Reaching here with a non-heuristic configured provider means the provider
+    // is incompatible with the active storage mode (e.g. python + aws). Surface
+    // it so the silent degradation to heuristic is diagnosable.
+    if (env.detectionProvider !== "heuristic") {
+      logger.warn("Configured detection provider is incompatible with the active storage mode; using heuristic", {
+        detectionProvider: env.detectionProvider,
+        storageMode: env.storageMode
+      });
     }
 
     const heuristicResult = await heuristicDetection.detect(imageBytes);
@@ -336,7 +370,13 @@ export class DetectionService {
 
   private async loadImageBytes(input: DetectImageInput): Promise<Uint8Array> {
     if (input.imageDataBase64) {
-      const bytes = Buffer.from(input.imageDataBase64, "base64");
+      // Buffer.from(..., "base64") never throws — it silently drops invalid
+      // characters — so guard against empty/garbage input before persisting it.
+      const base64 = input.imageDataBase64.replace(/^data:[^;]+;base64,/, "");
+      const bytes = Buffer.from(base64, "base64");
+      if (bytes.length === 0) {
+        throw new RequestValidationError("imageDataBase64 did not decode to any image bytes");
+      }
       if (env.storageMode === "local") {
         await writeLocalUpload(input.imageKey, bytes);
       }

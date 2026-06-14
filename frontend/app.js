@@ -202,7 +202,18 @@ function resetPreview(message = "Choose an image to preview.") {
 }
 
 async function withBusyButton(button, busyLabel, task) {
-  const originalLabel = button.textContent;
+  // Already busy: another caller owns this button's label/disabled state, so just
+  // run the task without snapshotting the (already mutated) busy label.
+  if (button.disabled) {
+    return await task();
+  }
+
+  // Capture the canonical idle label exactly once so a concurrent/nested call can
+  // never snapshot "Refreshing..." and restore it permanently.
+  if (button.dataset.idleLabel === undefined) {
+    button.dataset.idleLabel = button.textContent;
+  }
+  const originalLabel = button.dataset.idleLabel;
   button.disabled = true;
   button.textContent = busyLabel;
 
@@ -284,7 +295,8 @@ function renderAttentionGrid(attentionGrid) {
   elements.attentionGrid.classList.remove("hidden");
   elements.attentionGrid.innerHTML = attentionGrid.values
     .map((value) => {
-      const normalizedValue = Math.max(0, Math.min(1, Number(value)));
+      const numericValue = Number(value);
+      const normalizedValue = Number.isFinite(numericValue) ? Math.max(0, Math.min(1, numericValue)) : 0;
       return `<span class="attention-cell" style="--intensity:${normalizedValue}"></span>`;
     })
     .join("");
@@ -492,6 +504,14 @@ function imageUrlFromKey(imageKey) {
   return url.toString();
 }
 
+// Mirror of the server-side lifecycle (src/models/event.ts). Used to disable
+// status buttons that would be rejected with 409, so only legal moves are offered.
+const ALLOWED_STATUS_TRANSITIONS = {
+  NEW: ["CHECKING", "RESOLVED"],
+  CHECKING: ["NEW", "RESOLVED"],
+  RESOLVED: ["CHECKING"]
+};
+
 function renderEventDetail(item) {
   if (!item) {
     elements.eventDetail.className = "event-detail empty";
@@ -538,8 +558,12 @@ function renderEventDetail(item) {
     <div class="status-actions">
       ${["NEW", "CHECKING", "RESOLVED"]
         .map((status) => {
-          const isActive = item.status === status ? "active" : "";
-          return `<button type="button" data-update-status="${status}" class="${isActive}">${status}</button>`;
+          const isActive = item.status === status;
+          const allowed = ALLOWED_STATUS_TRANSITIONS[item.status] ?? [];
+          const isDisabled = isActive || !allowed.includes(status);
+          return `<button type="button" data-update-status="${status}" class="${
+            isActive ? "active" : ""
+          }"${isDisabled ? " disabled" : ""}>${status}</button>`;
         })
         .join("")}
     </div>
@@ -664,9 +688,19 @@ async function updateEventStatus(eventId, status) {
     throw new Error(`Status update failed with ${response.status}: ${text}`);
   }
 
+  // fetchEvents already re-renders the selected event's detail from the refreshed
+  // list, so there is no need for a second loadEventDetail round-trip here.
   await Promise.all([fetchEvents(), fetchDashboard()]);
   markSynced();
-  await loadEventDetail(eventId);
+
+  // If the new status moved the event out of the active filter, clear the stale
+  // selection rather than leaving a detail panel open for a now-hidden row.
+  const stillVisible = getFilteredEvents().some((item) => item.eventId === eventId);
+  if (!stillVisible) {
+    state.selectedEventId = null;
+    renderEvents();
+    renderEventDetail(null);
+  }
 }
 
 async function resetLocalDatabase() {
@@ -703,6 +737,10 @@ async function handleSubmit(event) {
 
   try {
     const upload = await requestUploadUrl(apiBaseUrl, file.type);
+
+    if (!upload || !upload.uploadMode || !upload.key) {
+      throw new Error("アップロードURLのレスポンスが不正です。");
+    }
 
     if (upload.uploadMode === "presigned" && upload.uploadUrl) {
       await uploadToSignedUrl(upload.uploadUrl, file);

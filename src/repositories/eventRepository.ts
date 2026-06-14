@@ -64,9 +64,25 @@ export class EventRepository {
       scanInput.ExpressionAttributeValues = expressionAttributeValues;
     }
 
-    const result = await docClient.send(new ScanCommand(scanInput));
+    // A single Scan caps each response at 1MB of scanned data and signals more
+    // via LastEvaluatedKey. Loop until exhausted so dashboard totals and the
+    // event list are never silently truncated once the table grows past ~1MB.
+    const items: EventItem[] = [];
+    let lastEvaluatedKey: Record<string, unknown> | undefined;
 
-    return (result.Items as EventItem[] | undefined) ?? [];
+    do {
+      const result = await docClient.send(
+        new ScanCommand({ ...scanInput, ExclusiveStartKey: lastEvaluatedKey })
+      );
+
+      if (result.Items) {
+        items.push(...(result.Items as EventItem[]));
+      }
+
+      lastEvaluatedKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (lastEvaluatedKey);
+
+    return items;
   }
 
   async findById(eventId: string): Promise<EventItem | null> {
@@ -85,7 +101,11 @@ export class EventRepository {
     return (result.Item as EventItem | undefined) ?? null;
   }
 
-  async updateStatus(eventId: string, status: EventStatus): Promise<EventItem | null> {
+  async updateStatus(
+    eventId: string,
+    status: EventStatus,
+    expectedStatus?: EventStatus
+  ): Promise<EventItem | null> {
     if (env.storageMode === "local") {
       let updatedItem: EventItem | null = null;
       await updateLocalEvents((items) =>
@@ -106,20 +126,30 @@ export class EventRepository {
       return updatedItem;
     }
 
+    const conditionExpressions = ["attribute_exists(eventId)"];
+    const expressionAttributeValues: Record<string, string> = {
+      ":status": status,
+      ":updatedAt": new Date().toISOString()
+    };
+
+    // Guard the write against a concurrent status change so the transition the
+    // service validated is the one that actually applies (optimistic locking).
+    if (expectedStatus) {
+      conditionExpressions.push("#status = :expectedStatus");
+      expressionAttributeValues[":expectedStatus"] = expectedStatus;
+    }
+
     try {
       const result = await docClient.send(
         new UpdateCommand({
           TableName: env.eventsTable,
           Key: { eventId },
           UpdateExpression: "SET #status = :status, updatedAt = :updatedAt",
-          ConditionExpression: "attribute_exists(eventId)",
+          ConditionExpression: conditionExpressions.join(" AND "),
           ExpressionAttributeNames: {
             "#status": "status"
           },
-          ExpressionAttributeValues: {
-            ":status": status,
-            ":updatedAt": new Date().toISOString()
-          },
+          ExpressionAttributeValues: expressionAttributeValues,
           ReturnValues: "ALL_NEW"
         })
       );

@@ -37,6 +37,14 @@ export function notFound(message = "Not Found") {
   };
 }
 
+export function conflict(message = "Conflict") {
+  return {
+    statusCode: 409,
+    headers,
+    body: JSON.stringify({ message })
+  };
+}
+
 export function serverError(message = "Internal Server Error") {
   return {
     statusCode: 500,

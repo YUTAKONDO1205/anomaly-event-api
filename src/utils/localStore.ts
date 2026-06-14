@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { EventItem } from "../models/event";
 import { env } from "./env";
+import { RequestValidationError } from "./errors";
 
 let eventsFileLock: Promise<unknown> = Promise.resolve();
 
@@ -98,7 +99,15 @@ export async function resetLocalEventStorage(): Promise<{ eventsCleared: number;
 }
 
 export function resolveLocalUploadPath(imageKey: string): string {
-  return path.join(env.localUploadsDir, imageKey);
+  // Confine the resolved path to the uploads directory so a crafted imageKey
+  // (e.g. "../../etc/passwd") cannot escape it and read/write arbitrary files.
+  const root = path.resolve(env.localUploadsDir);
+  const resolved = path.resolve(root, imageKey);
+  const relative = path.relative(root, resolved);
+  if (relative === "" || relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new RequestValidationError(`Invalid imageKey: ${imageKey}`);
+  }
+  return resolved;
 }
 
 export async function writeLocalUpload(imageKey: string, bytes: Uint8Array): Promise<string> {

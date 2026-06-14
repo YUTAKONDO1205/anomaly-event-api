@@ -54,7 +54,11 @@ export function createEmptySeveritySummary(): DashboardSeveritySummary {
 }
 
 export function incrementStatus(summary: DashboardStatusSummary, status: EventStatus) {
-  summary[status] += 1;
+  // Guard against legacy/corrupted data carrying an out-of-enum status, which
+  // would otherwise make summary[status] undefined and += 1 yield NaN.
+  if (Object.prototype.hasOwnProperty.call(summary, status)) {
+    summary[status] += 1;
+  }
 }
 
 export function incrementSeverity(summary: DashboardSeveritySummary, severity?: EventSeverity) {
@@ -62,5 +66,7 @@ export function incrementSeverity(summary: DashboardSeveritySummary, severity?: 
     return;
   }
 
-  summary[severity] += 1;
+  if (Object.prototype.hasOwnProperty.call(summary, severity)) {
+    summary[severity] += 1;
+  }
 }

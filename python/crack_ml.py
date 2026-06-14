@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import base64
+import contextlib
 import hashlib
 import io
 import json
@@ -122,7 +123,15 @@ def stratified_split(entries: list[ManifestEntry]) -> dict[str, list[ManifestEnt
 
     def split_group(group: list[ManifestEntry]) -> tuple[list[ManifestEntry], list[ManifestEntry], list[ManifestEntry]]:
         total = len(group)
-        train_end = max(1, int(total * TRAIN_RATIO))
+        if total == 0:
+            return [], [], []
+        # With fewer than 3 samples there is no way to form 3 disjoint splits; keep
+        # everything in train (empty val/test) rather than duplicating the single
+        # sample into both train and test (data leakage) or emptying a split.
+        if total < 3:
+            return group, [], []
+        # Clamp train so validation and test each keep at least one disjoint sample.
+        train_end = max(1, min(int(total * TRAIN_RATIO), total - 2))
         validation_end = max(train_end + 1, int(total * (TRAIN_RATIO + VALIDATION_RATIO)))
         validation_end = min(validation_end, total - 1)
         return group[:train_end], group[train_end:validation_end], group[validation_end:]
@@ -585,7 +594,10 @@ def build_contributions(probability: float, attention_grid: np.ndarray) -> list[
                 "label": f"Activation block {row_index + 1}-{col_index + 1}",
                 "value": round(float(intensity), 4),
                 "contribution": round(float(intensity), 4),
-                "direction": "supports",
+                # Grad-CAM always targets the positive/crack logit, so these
+                # activations are crack-evidence. Label their direction by the
+                # verdict so a Negative frame doesn't present them as "supports".
+                "direction": "supports" if probability >= 0.5 else "suppresses",
             }
         )
 
@@ -616,9 +628,18 @@ def infer(payload: dict) -> dict:
     model_path = Path(payload["modelPath"])
     image_path = Path(payload["imagePath"])
     target_label = payload.get("targetLabel", "Positive")
-    threshold_percent = float(payload.get("threshold", 55))
 
     artifact = load_or_train_model(manifest_path, model_path)
+    # Default the decision threshold to the model's own calibrated value — the
+    # threshold its reported accuracy/precision/recall/F1 were measured at —
+    # converting the stored probability (0-1) to percent. An explicit payload
+    # "threshold" still overrides it, so callers can force an operational value.
+    recommended = (artifact.get("metrics") or {}).get("recommendedThreshold")
+    default_threshold_percent = (
+        round(float(recommended) * 100.0, 2) if recommended is not None else 55.0
+    )
+    threshold_percent = float(payload.get("threshold", default_threshold_percent))
+
     device = get_device()
     model = load_model_for_inference(artifact, device)
     input_tensor = load_image_tensor(image_path, device)
@@ -688,7 +709,10 @@ def main() -> None:
     if command == "train":
         manifest_path = Path(payload["manifestPath"])
         model_path = Path(payload["modelPath"])
-        artifact = load_or_train_model(manifest_path, model_path, force_retrain=True)
+        # Keep stdout clean for the JSON contract: any library progress/warnings
+        # printed during training go to stderr, not the single result line.
+        with contextlib.redirect_stdout(sys.stderr):
+            artifact = load_or_train_model(manifest_path, model_path, force_retrain=True)
         sys.stdout.write(
             json.dumps(
                 {
@@ -704,7 +728,9 @@ def main() -> None:
         return
 
     if command == "infer":
-        sys.stdout.write(json.dumps(infer(payload)))
+        with contextlib.redirect_stdout(sys.stderr):
+            result = infer(payload)
+        sys.stdout.write(json.dumps(result))
         return
 
     raise SystemExit(f"Unknown command: {command}")

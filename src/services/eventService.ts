@@ -1,7 +1,13 @@
 import { v4 as uuidv4 } from "uuid";
-import { CreateEventInput, EventItem, EventStatus } from "../models/event";
+import {
+  CreateEventInput,
+  EventItem,
+  EventStatus,
+  isAllowedStatusTransition
+} from "../models/event";
 import { EventRepository } from "../repositories/eventRepository";
 import { ListEventsQuery } from "../types/event";
+import { InvalidStatusTransitionError } from "../utils/errors";
 
 export class EventService {
   constructor(private readonly repository = new EventRepository()) {}
@@ -41,6 +47,17 @@ export class EventService {
   }
 
   async updateStatus(eventId: string, status: EventStatus): Promise<EventItem | null> {
-    return this.repository.updateStatus(eventId, status);
+    const current = await this.repository.findById(eventId);
+    if (!current) {
+      return null;
+    }
+
+    if (!isAllowedStatusTransition(current.status, status)) {
+      throw new InvalidStatusTransitionError(
+        `Cannot change event status from ${current.status} to ${status}`
+      );
+    }
+
+    return this.repository.updateStatus(eventId, status, current.status);
   }
 }

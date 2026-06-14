@@ -20,7 +20,7 @@
     "sam:deploy:guided": "npm run sam:build && sam deploy --guided",
     "sam:deploy:deep": "npm run sam:deploy",
     "sam:publish-web": "node scripts/publish-frontend-aws.mjs --stack-name anomaly-event-api",
-    "test": "npm run build && node --test"
+    "test": "npm run build && node --test \"tests/**/*.test.js\""
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.879.0",
