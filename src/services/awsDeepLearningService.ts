@@ -1,7 +1,12 @@
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { DetectionExplanation, DetectionLabel, DetectionModelInfo } from "../types/detection";
 import { env } from "../utils/env";
-import { DeepLearningPermanentError } from "../utils/errors";
+import { DeepLearningPermanentError, RequestValidationError } from "../utils/errors";
+
+// A synchronous (RequestResponse) Lambda invoke caps the request payload at 6MB.
+// base64 + the JSON envelope inflate the raw image ~37%, so keep raw bytes under
+// ~4.5MB to stay within the limit instead of failing opaquely at the SDK.
+const MAX_INLINE_IMAGE_BYTES = Math.floor(4.5 * 1024 * 1024);
 
 interface AwsDeepLearningRequest {
   imageBase64: string;
@@ -49,6 +54,12 @@ export class AwsDeepLearningService {
     if (!env.awsDeepLearningFunctionName) {
       throw new DeepLearningPermanentError(
         "Missing environment variable: AWS_DEEP_LEARNING_FUNCTION_NAME"
+      );
+    }
+
+    if (imageBytes.length > MAX_INLINE_IMAGE_BYTES) {
+      throw new RequestValidationError(
+        `Image is too large for inline deep-learning inference (${imageBytes.length} bytes; max ${MAX_INLINE_IMAGE_BYTES}).`
       );
     }
 

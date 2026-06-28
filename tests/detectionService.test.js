@@ -16,7 +16,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { DetectionService } = require("../dist/services/detectionService.js");
-const { DeepLearningPermanentError } = require("../dist/utils/errors.js");
+const { DeepLearningPermanentError, RequestValidationError } = require("../dist/utils/errors.js");
 
 function dlResult(overrides = {}) {
   return {
@@ -157,6 +157,17 @@ test("rethrows a permanent DL error instead of masking it as a heuristic detecti
   const service = new DetectionService({ createEvent: async () => ({}) }, throwingPython, aws);
 
   await assert.rejects(() => service.detectAndCreateEvent(detectInput()), DeepLearningPermanentError);
+});
+
+test("surfaces an invalid-input (RequestValidationError) DL failure instead of falling back", async () => {
+  const aws = {
+    detect: async () => {
+      throw new RequestValidationError("Image is too large for inline deep-learning inference");
+    }
+  };
+  const service = new DetectionService(recordingEventService(), throwingPython, aws);
+
+  await assert.rejects(() => service.detectAndCreateEvent(detectInput()), RequestValidationError);
 });
 
 test("rejects an imageDataBase64 that decodes to nothing", async () => {

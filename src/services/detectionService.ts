@@ -188,9 +188,10 @@ export class DetectionService {
         });
         return this.fromPythonResult(awsResult);
       } catch (error) {
-        // A permanent misconfiguration / broken contract must not be masked as a
-        // successful heuristic detection — surface it so it can be fixed.
-        if (error instanceof DeepLearningPermanentError) {
+        // A permanent misconfiguration / broken contract / invalid input must not
+        // be masked as a successful heuristic detection — surface it so the caller
+        // sees the real failure (500 for permanent, 400 for invalid input).
+        if (error instanceof DeepLearningPermanentError || error instanceof RequestValidationError) {
           throw error;
         }
 

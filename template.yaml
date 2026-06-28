@@ -20,6 +20,9 @@ Parameters:
     Type: Number
     Default: 80
 
+Conditions:
+  HasRekognitionArn: !Not [!Equals [!Ref RekognitionProjectVersionArn, ""]]
+
 Globals:
   Function:
     Timeout: 10
@@ -172,7 +175,9 @@ Resources:
             - Effect: Allow
               Action:
                 - rekognition:DetectCustomLabels
-              Resource: "*"
+              # Scope to the configured project-version ARN when set; only the
+              # default (rekognition path disabled) falls back to "*".
+              Resource: !If [HasRekognitionArn, !Ref RekognitionProjectVersionArn, "*"]
             - Effect: Allow
               Action:
                 - lambda:InvokeFunction
